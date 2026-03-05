@@ -10,16 +10,19 @@
 // 4. Enable Firestore Database and Storage in Firebase console
 
 const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
+    apiKey: "AIzaSyBaD4IcnIeOuggs7IXu84-YggJE6O0vFi0",
+    authDomain: "qbo-tracker.firebaseapp.com",
+    projectId: "qbo-tracker",
+    storageBucket: "qbo-tracker.firebasestorage.app",
+    messagingSenderId: "204401157729",
+    appId: "1:204401157729:web:4299465d249c035b82ac20"
 };
 
 // Check if Firebase is configured
 const isFirebaseConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY";
+
+// Firebase Storage requires Blaze plan - set to false to use local IndexedDB for files
+const useFirebaseStorage = false;
 
 // Initialize Firebase (only if configured)
 let db = null;
@@ -28,7 +31,9 @@ let storage = null;
 if (isFirebaseConfigured) {
     firebase.initializeApp(firebaseConfig);
     db = firebase.firestore();
-    storage = firebase.storage();
+    if (useFirebaseStorage) {
+        storage = firebase.storage();
+    }
 }
 
 // =====================================================
@@ -145,7 +150,7 @@ async function saveFile(entryId, file) {
         uploadedAt: new Date().toISOString()
     };
 
-    if (isFirebaseConfigured) {
+    if (useFirebaseStorage && isFirebaseConfigured) {
         try {
             // Upload to Firebase Storage
             const storageRef = storage.ref(`files/${entryId}/${fileId}_${file.name}`);
@@ -179,9 +184,9 @@ async function saveFile(entryId, file) {
     }
 }
 
-// Get files for an entry
+// Get files for an entry (always uses local IndexedDB since Firebase Storage requires Blaze plan)
 async function getFilesForEntry(entryId) {
-    if (isFirebaseConfigured) {
+    if (useFirebaseStorage && isFirebaseConfigured) {
         try {
             const snapshot = await db.collection('files').where('entryId', '==', entryId).get();
             return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -201,9 +206,9 @@ async function getFilesForEntry(entryId) {
     }
 }
 
-// Delete a file
+// Delete a file (always uses local IndexedDB since Firebase Storage requires Blaze plan)
 async function deleteFile(fileId, storagePath) {
-    if (isFirebaseConfigured) {
+    if (useFirebaseStorage && isFirebaseConfigured) {
         try {
             // Delete from Storage
             if (storagePath) {
@@ -239,9 +244,9 @@ async function getFileCount(entryId) {
     return files.length;
 }
 
-// Download a file
+// Download a file (always uses local IndexedDB since Firebase Storage requires Blaze plan)
 async function downloadFileById(fileId) {
-    if (isFirebaseConfigured) {
+    if (useFirebaseStorage && isFirebaseConfigured) {
         try {
             const doc = await db.collection('files').doc(fileId).get();
             if (doc.exists) {
@@ -374,10 +379,8 @@ let allEntries = []; // Cache for filtered views
 // =====================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // Show config warning if Firebase not configured
-    if (!isFirebaseConfigured) {
-        showConfigWarning();
-    }
+    // Show status banner
+    showConfigWarning();
     
     await initLocalDB();
     initNavigation();
@@ -391,6 +394,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function showConfigWarning() {
+    // Only show warning if Firebase is not configured
+    if (isFirebaseConfigured) {
+        // Show info banner that entries sync but files are local
+        const info = document.createElement('div');
+        info.className = 'config-warning';
+        info.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+        info.innerHTML = `
+            <div class="warning-content">
+                <strong>✅ Firebase Connected - Team Sync Enabled!</strong>
+                <p>All entries sync across team members. File attachments are stored locally in each browser.</p>
+                <button onclick="this.parentElement.parentElement.remove()">Got it!</button>
+            </div>
+        `;
+        document.body.appendChild(info);
+        return;
+    }
+    
     const warning = document.createElement('div');
     warning.className = 'config-warning';
     warning.innerHTML = `
