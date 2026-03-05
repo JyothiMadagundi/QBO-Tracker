@@ -805,6 +805,12 @@ async function renderEntries() {
             <td>${escapeHtml(entry.requestedBy || '-')}</td>
             <td>${escapeHtml(entry.attendedBy || '-')}</td>
             <td><span class="status-badge ${entry.status}">${formatStatus(entry.status)}</span></td>
+            <td class="notes-cell" title="${escapeHtml(entry.notes || '')}">
+                ${entry.notes 
+                    ? `<span class="notes-preview">${escapeHtml(entry.notes.length > 50 ? entry.notes.substring(0, 50) + '...' : entry.notes)}</span>`
+                    : `<span class="no-notes">-</span>`
+                }
+            </td>
             <td>
                 ${fileCount > 0 
                     ? `<span class="attachment-badge" onclick="openAttachmentsModal('${entry.id}')">

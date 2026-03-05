@@ -1565,3 +1565,26 @@ body {
     background: #333;
 }
 
+/* Notes Column Styles */
+.notes-cell {
+    max-width: 200px;
+    cursor: pointer;
+}
+
+.notes-preview {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+.notes-cell:hover .notes-preview {
+    color: var(--text-primary);
+}
+
+.no-notes {
+    color: var(--text-muted);
+}
+
