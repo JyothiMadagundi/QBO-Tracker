@@ -973,14 +973,14 @@ function handleFileSelect(e) {
 }
 
 function processFiles(files) {
-    const maxSize = 25 * 1024 * 1024; // 25MB limit
-    const allowedTypes = ['har', 'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'pdf', 'txt', 'json'];
+    const maxSize = 100 * 1024 * 1024; // 100MB limit
+    const allowedTypes = ['har', 'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'pdf', 'txt', 'json', 'zip', 'doc', 'docx', 'xls', 'xlsx'];
     
     for (const file of files) {
         const ext = file.name.split('.').pop().toLowerCase();
         
         if (file.size > maxSize) {
-            showToast(`File "${file.name}" exceeds 25MB limit`, 'error');
+            showToast(`File "${file.name}" exceeds 100MB limit`, 'error');
             continue;
         }
         
@@ -1097,6 +1097,12 @@ async function renderAttachmentsModalFiles(entryId) {
                 </div>
             </div>
             <div class="attached-file-actions">
+                <button class="file-action-btn preview" title="Preview/Open" onclick="previewFile('${f.id}')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                </button>
                 <button class="file-action-btn download" title="Download" onclick="downloadFile('${f.id}')">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -1121,14 +1127,14 @@ function closeAttachmentsModal() {
 }
 
 async function addFilesToEntry(entryId, files) {
-    const maxSize = 25 * 1024 * 1024; // 25MB limit
-    const allowedTypes = ['har', 'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'pdf', 'txt', 'json'];
+    const maxSize = 100 * 1024 * 1024; // 100MB limit
+    const allowedTypes = ['har', 'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'pdf', 'txt', 'json', 'zip', 'doc', 'docx', 'xls', 'xlsx'];
     
     for (const file of files) {
         const ext = file.name.split('.').pop().toLowerCase();
         
         if (file.size > maxSize) {
-            showToast(`File "${file.name}" exceeds 25MB limit`, 'error');
+            showToast(`File "${file.name}" exceeds 100MB limit`, 'error');
             continue;
         }
         
@@ -1150,6 +1156,147 @@ async function addFilesToEntry(entryId, files) {
 window.downloadFile = async function(fileId) {
     await downloadFileById(fileId);
 };
+
+window.previewFile = async function(fileId) {
+    // Get file from IndexedDB
+    const transaction = localDB.transaction(['files'], 'readonly');
+    const store = transaction.objectStore('files');
+    const request = store.get(fileId);
+    
+    request.onsuccess = () => {
+        const file = request.result;
+        if (!file) {
+            showToast('File not found', 'error');
+            return;
+        }
+        
+        const ext = file.name.split('.').pop().toLowerCase();
+        
+        // For images - show in preview modal
+        if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
+            openImagePreview(file.data, file.name);
+        }
+        // For HTML files - open in new tab
+        else if (['html', 'htm'].includes(ext)) {
+            const newTab = window.open();
+            newTab.document.write(atob(file.data.split(',')[1]));
+            newTab.document.title = file.name;
+        }
+        // For HAR files - open in JSON viewer
+        else if (ext === 'har') {
+            try {
+                const harContent = atob(file.data.split(',')[1]);
+                const harJson = JSON.parse(harContent);
+                openJsonPreview(harJson, file.name);
+            } catch (e) {
+                // If parsing fails, open as text
+                openTextPreview(atob(file.data.split(',')[1]), file.name);
+            }
+        }
+        // For JSON files
+        else if (ext === 'json') {
+            try {
+                const jsonContent = atob(file.data.split(',')[1]);
+                const jsonData = JSON.parse(jsonContent);
+                openJsonPreview(jsonData, file.name);
+            } catch (e) {
+                openTextPreview(atob(file.data.split(',')[1]), file.name);
+            }
+        }
+        // For text files
+        else if (ext === 'txt') {
+            openTextPreview(atob(file.data.split(',')[1]), file.name);
+        }
+        // For PDF - open in new tab
+        else if (ext === 'pdf') {
+            const newTab = window.open();
+            newTab.document.write(`<iframe src="${file.data}" style="width:100%;height:100%;border:none;"></iframe>`);
+            newTab.document.title = file.name;
+        }
+        // For other files - download
+        else {
+            downloadFileById(fileId);
+        }
+    };
+};
+
+// Image Preview Modal
+function openImagePreview(dataUrl, fileName) {
+    const modal = document.createElement('div');
+    modal.className = 'preview-modal active';
+    modal.innerHTML = `
+        <div class="preview-modal-content image-preview">
+            <div class="preview-modal-header">
+                <h3>${escapeHtml(fileName)}</h3>
+                <button class="preview-close-btn" onclick="this.closest('.preview-modal').remove()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="preview-modal-body">
+                <img src="${dataUrl}" alt="${escapeHtml(fileName)}" style="max-width: 100%; max-height: 80vh; object-fit: contain;">
+            </div>
+        </div>
+    `;
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+    document.body.appendChild(modal);
+}
+
+// JSON/HAR Preview Modal
+function openJsonPreview(jsonData, fileName) {
+    const modal = document.createElement('div');
+    modal.className = 'preview-modal active';
+    modal.innerHTML = `
+        <div class="preview-modal-content json-preview">
+            <div class="preview-modal-header">
+                <h3>${escapeHtml(fileName)}</h3>
+                <button class="preview-close-btn" onclick="this.closest('.preview-modal').remove()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="preview-modal-body">
+                <pre style="white-space: pre-wrap; word-wrap: break-word; max-height: 70vh; overflow: auto; background: var(--bg-tertiary); padding: 16px; border-radius: 8px; font-family: var(--font-mono); font-size: 12px;">${escapeHtml(JSON.stringify(jsonData, null, 2))}</pre>
+            </div>
+        </div>
+    `;
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+    document.body.appendChild(modal);
+}
+
+// Text Preview Modal
+function openTextPreview(text, fileName) {
+    const modal = document.createElement('div');
+    modal.className = 'preview-modal active';
+    modal.innerHTML = `
+        <div class="preview-modal-content text-preview">
+            <div class="preview-modal-header">
+                <h3>${escapeHtml(fileName)}</h3>
+                <button class="preview-close-btn" onclick="this.closest('.preview-modal').remove()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="preview-modal-body">
+                <pre style="white-space: pre-wrap; word-wrap: break-word; max-height: 70vh; overflow: auto; background: var(--bg-tertiary); padding: 16px; border-radius: 8px; font-family: var(--font-mono); font-size: 12px;">${escapeHtml(text)}</pre>
+            </div>
+        </div>
+    `;
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+    document.body.appendChild(modal);
+}
 
 window.deleteAttachment = async function(fileId, storagePath) {
     if (confirm('Delete this attachment?')) {
