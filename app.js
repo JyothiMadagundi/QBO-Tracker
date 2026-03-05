@@ -1314,7 +1314,7 @@ async function exportData() {
         'Call Booked Date': entry.callBookedDate ? formatDateInput(entry.callBookedDate) : '',
         'Provider': entry.provider || '',
         'Bank Name': entry.bankName,
-        'Customer/Case ID': entry.customerId,
+        'Customer ID': entry.customerId,
         'Call Type': formatCallType(entry.callType),
         'Requested By': entry.requestedBy || '',
         'Attended By': entry.attendedBy || '',
@@ -1370,7 +1370,7 @@ async function importData(e) {
                 const entryData = {
                     provider: row['Provider'] || row['provider'] || '',
                     bankName: row['Bank Name'] || row['bankName'] || row['Bank'] || '',
-                    customerId: row['Customer/Case ID'] || row['customerId'] || row['Case ID'] || '',
+                    customerId: row['Customer ID'] || row['customerId'] || row['Customer/Case ID'] || row['Case ID'] || '',
                     callType: mapCallType(row['Call Type'] || row['callType'] || ''),
                     requestedBy: row['Requested By'] || row['requestedBy'] || '',
                     attendedBy: row['Attended By'] || row['attendedBy'] || '',
