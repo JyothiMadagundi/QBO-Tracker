@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QBO Script Tracker | Bank Connection Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <!-- SheetJS for Excel import/export -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                        <path d="M2 17l10 5 10-5"/>
+                        <path d="M2 12l10 5 10-5"/>
+                    </svg>
+                </div>
+                <span>QBO Tracker</span>
+            </div>
+            
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-view="dashboard">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7"/>
+                        <rect x="14" y="3" width="7" height="7"/>
+                        <rect x="14" y="14" width="7" height="7"/>
+                        <rect x="3" y="14" width="7" height="7"/>
+                    </svg>
+                    Dashboard
+                </a>
+                <a href="#" class="nav-item" data-view="entries">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <polyline points="10 9 9 9 8 9"/>
+                    </svg>
+                    All Entries
+                </a>
+                <a href="#" class="nav-item" data-view="banks">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 21h18"/>
+                        <path d="M3 10h18"/>
+                        <path d="M5 6l7-3 7 3"/>
+                        <path d="M4 10v11"/>
+                        <path d="M20 10v11"/>
+                        <path d="M8 14v3"/>
+                        <path d="M12 14v3"/>
+                        <path d="M16 14v3"/>
+                    </svg>
+                    Banks
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button class="btn-export" id="exportBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Export Data
+                </button>
+                <button class="btn-import" id="importBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    Import Data
+                </button>
+                <input type="file" id="importFile" accept=".xlsx,.xls" hidden>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="header">
+                <div class="header-left">
+                    <h1 id="pageTitle">Dashboard</h1>
+                    <p class="subtitle">Track QuickBooks Online bank connection scripts</p>
+                </div>
+                <div class="header-right">
+                    <button class="btn-primary" id="addEntryBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"/>
+                            <line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        Add Entry
+                    </button>
+                </div>
+            </header>
+
+            <!-- Dashboard View -->
+            <section id="dashboardView" class="view active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon pending">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <polyline points="12 6 12 12 16 14"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statPending">0</span>
+                            <span class="stat-label">Pending</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon in-progress">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2v4"/>
+                                <path d="M12 18v4"/>
+                                <path d="M4.93 4.93l2.83 2.83"/>
+                                <path d="M16.24 16.24l2.83 2.83"/>
+                                <path d="M2 12h4"/>
+                                <path d="M18 12h4"/>
+                                <path d="M4.93 19.07l2.83-2.83"/>
+                                <path d="M16.24 7.76l2.83-2.83"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statInProgress">0</span>
+                            <span class="stat-label">In Progress</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon completed">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                <polyline points="22 4 12 14.01 9 11.01"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statCompleted">0</span>
+                            <span class="stat-label">Completed</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon error">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="8" x2="12" y2="12"/>
+                                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="statError">0</span>
+                            <span class="stat-label">Issues</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="card recent-entries">
+                        <div class="card-header">
+                            <h3>Recent Entries</h3>
+                            <a href="#" class="view-all" data-view="entries">View All</a>
+                        </div>
+                        <div class="card-content" id="recentEntriesList">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                    <div class="card call-types">
+                        <div class="card-header">
+                            <h3>Call Types Overview</h3>
+                        </div>
+                        <div class="card-content">
+                            <div class="call-type-item">
+                                <div class="call-type-info">
+                                    <span class="call-type-dot har"></span>
+                                    <span>HAR/HTML Collection</span>
+                                </div>
+                                <span class="call-type-count" id="countHar">0</span>
+                            </div>
+                            <div class="call-type-item">
+                                <div class="call-type-info">
+                                    <span class="call-type-dot attempt"></span>
+                                    <span>Verification Attempt</span>
+                                </div>
+                                <span class="call-type-count" id="countAttempt">0</span>
+                            </div>
+                            <div class="call-type-item">
+                                <div class="call-type-info">
+                                    <span class="call-type-dot issue"></span>
+                                    <span>Issue Check</span>
+                                </div>
+                                <span class="call-type-count" id="countIssue">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Entries View -->
+            <section id="entriesView" class="view">
+                <div class="filters-bar">
+                    <div class="search-box">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                        <input type="text" id="searchInput" placeholder="Search by bank, provider, team member...">
+                    </div>
+                    <div class="filter-group">
+                        <select id="filterCallType">
+                            <option value="">All Call Types</option>
+                            <option value="har_collection">HAR/HTML Collection</option>
+                            <option value="verification_attempt">Verification Attempt</option>
+                            <option value="issue_check">Issue Check</option>
+                        </select>
+                        <select id="filterStatus">
+                            <option value="">All Status</option>
+                            <option value="pending">Pending</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="completed">Completed</option>
+                            <option value="error">Error/Issue</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filters-bar date-filters">
+                    <div class="date-range-group">
+                        <label for="dateFrom">From:</label>
+                        <input type="date" id="dateFrom" class="date-input">
+                    </div>
+                    <div class="date-range-group">
+                        <label for="dateTo">To:</label>
+                        <input type="date" id="dateTo" class="date-input">
+                    </div>
+                    <button class="btn-filter" id="applyDateFilter">Apply Filter</button>
+                    <button class="btn-clear" id="clearDateFilter">Clear</button>
+                </div>
+
+                <div class="entries-table-container">
+                    <table class="entries-table">
+                        <thead>
+                            <tr>
+                                <th>Created</th>
+                                <th>Call Booked</th>
+                                <th>Provider</th>
+                                <th>Bank Name</th>
+                                <th>Case ID</th>
+                                <th>Call Type</th>
+                                <th>Requested By</th>
+                                <th>Attended By</th>
+                                <th>Status</th>
+                                <th>Files</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="entriesTableBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                    <div class="empty-state" id="emptyState">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="12" y1="18" x2="12" y2="12"/>
+                            <line x1="9" y1="15" x2="15" y2="15"/>
+                        </svg>
+                        <h3>No entries yet</h3>
+                        <p>Click "Add Entry" to create your first tracking entry</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Banks View -->
+            <section id="banksView" class="view">
+                <div class="banks-grid" id="banksGrid">
+                    <!-- Populated by JS -->
+                </div>
+                <div class="empty-state" id="emptyBanksState">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M3 21h18"/>
+                        <path d="M3 10h18"/>
+                        <path d="M5 6l7-3 7 3"/>
+                        <path d="M4 10v11"/>
+                        <path d="M20 10v11"/>
+                    </svg>
+                    <h3>No banks tracked yet</h3>
+                    <p>Banks will appear here once you add entries</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Add/Edit Entry Modal -->
+    <div class="modal-overlay" id="entryModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="modalTitle">Add New Entry</h2>
+                <button class="modal-close" id="closeModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <form id="entryForm">
+                <input type="hidden" id="entryId">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="provider">Provider *</label>
+                        <input type="text" id="provider" required placeholder="e.g., Plaid, Finicity, MX">
+                    </div>
+                    <div class="form-group">
+                        <label for="bankName">Bank Name *</label>
+                        <input type="text" id="bankName" required placeholder="e.g., Chase, Bank of America">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="customerId">Customer/Case ID *</label>
+                        <input type="text" id="customerId" required placeholder="e.g., CASE-12345">
+                    </div>
+                    <div class="form-group">
+                        <label for="callType">Call Type *</label>
+                        <select id="callType" required>
+                            <option value="">Select call type</option>
+                            <option value="har_collection">HAR/HTML Collection</option>
+                            <option value="verification_attempt">Verification Attempt</option>
+                            <option value="issue_check">Issue Check</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="requestedBy">Requested By *</label>
+                        <input type="text" id="requestedBy" required placeholder="Team member who requested the call">
+                    </div>
+                    <div class="form-group">
+                        <label for="attendedBy">Attended By</label>
+                        <input type="text" id="attendedBy" placeholder="Team member who attended the call">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="status">Status *</label>
+                        <select id="status" required>
+                            <option value="pending">Pending</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="completed">Completed</option>
+                            <option value="error">Error/Issue</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="connectionStatus">Connection Status</label>
+                        <select id="connectionStatus">
+                            <option value="not_tested">Not Tested Yet</option>
+                            <option value="files_collected">Files Collected Successfully</option>
+                            <option value="success">Successfully Connected</option>
+                            <option value="failed">Connection Failed</option>
+                            <option value="error_code">Error Code (Needs Follow-up)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="callBookedDate">Call Booked Date</label>
+                        <input type="date" id="callBookedDate" class="date-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="errorCode">Error Code (if any)</label>
+                        <input type="text" id="errorCode" placeholder="e.g., ERR-401, TIMEOUT">
+                    </div>
+                </div>
+                <div class="form-group full-width">
+                    <label for="notes">Notes</label>
+                    <textarea id="notes" rows="3" placeholder="Add any additional details, observations, or next steps..."></textarea>
+                </div>
+                <div class="form-group full-width">
+                    <label>Attachments (HAR, HTML, Screenshots, etc.)</label>
+                    <div class="file-upload-area" id="fileUploadArea">
+                        <input type="file" id="fileInput" multiple hidden>
+                        <div class="file-upload-prompt" id="fileUploadPrompt">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                            <span>Click to upload or drag & drop files</span>
+                            <small>Max 10MB per file • HAR, HTML, PNG, JPG, PDF</small>
+                        </div>
+                        <div class="attached-files" id="attachedFilesList">
+                            <!-- Files will be listed here -->
+                        </div>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" id="cancelBtn">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Entry</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div class="modal-overlay" id="deleteModal">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <h2>Delete Entry</h2>
+                <button class="modal-close" id="closeDeleteModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <p class="delete-message">Are you sure you want to delete this entry? This action cannot be undone.</p>
+            <div class="form-actions">
+                <button type="button" class="btn-secondary" id="cancelDeleteBtn">Cancel</button>
+                <button type="button" class="btn-danger" id="confirmDeleteBtn">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Attachments Modal -->
+    <div class="modal-overlay" id="attachmentsModal">
+        <div class="modal modal-lg">
+            <div class="modal-header">
+                <h2>Attachments</h2>
+                <button class="modal-close" id="closeAttachmentsModal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="attachments-content">
+                <div class="attachments-header">
+                    <div class="entry-info-summary" id="attachmentEntryInfo">
+                        <!-- Entry info will be shown here -->
+                    </div>
+                    <button class="btn-primary btn-sm" id="addMoreFiles">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"/>
+                            <line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        Add Files
+                    </button>
+                    <input type="file" id="addFilesInput" multiple hidden>
+                </div>
+                <div class="attachments-list" id="attachmentsModalList">
+                    <!-- Attachments will be listed here -->
+                </div>
+                <div class="empty-attachments" id="emptyAttachments">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    <p>No attachments yet</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast">
+        <span class="toast-message"></span>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+
