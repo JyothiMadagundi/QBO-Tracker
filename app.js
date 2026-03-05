@@ -394,28 +394,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function showConfigWarning() {
-    // Only show warning if Firebase is not configured
+    // Don't show any banner if Firebase is configured
     if (isFirebaseConfigured) {
-        // Only show the success banner once (check localStorage)
-        if (localStorage.getItem('qbo_firebase_banner_shown') === 'true') {
-            return; // Don't show again
-        }
-        
-        // Show info banner that entries sync but files are local
-        const info = document.createElement('div');
-        info.className = 'config-warning';
-        info.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-        info.innerHTML = `
-            <div class="warning-content">
-                <strong>✅ Firebase Connected - Team Sync Enabled!</strong>
-                <p>All entries sync across team members. File attachments are stored locally in each browser.</p>
-                <button onclick="localStorage.setItem('qbo_firebase_banner_shown', 'true'); this.parentElement.parentElement.remove()">Got it!</button>
-            </div>
-        `;
-        document.body.appendChild(info);
         return;
     }
     
+    // Only show warning if Firebase is NOT configured (for development/setup)
     const warning = document.createElement('div');
     warning.className = 'config-warning';
     warning.innerHTML = `
