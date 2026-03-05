@@ -396,6 +396,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 function showConfigWarning() {
     // Only show warning if Firebase is not configured
     if (isFirebaseConfigured) {
+        // Only show the success banner once (check localStorage)
+        if (localStorage.getItem('qbo_firebase_banner_shown') === 'true') {
+            return; // Don't show again
+        }
+        
         // Show info banner that entries sync but files are local
         const info = document.createElement('div');
         info.className = 'config-warning';
@@ -404,7 +409,7 @@ function showConfigWarning() {
             <div class="warning-content">
                 <strong>✅ Firebase Connected - Team Sync Enabled!</strong>
                 <p>All entries sync across team members. File attachments are stored locally in each browser.</p>
-                <button onclick="this.parentElement.parentElement.remove()">Got it!</button>
+                <button onclick="localStorage.setItem('qbo_firebase_banner_shown', 'true'); this.parentElement.parentElement.remove()">Got it!</button>
             </div>
         `;
         document.body.appendChild(info);
@@ -962,14 +967,14 @@ function handleFileSelect(e) {
 }
 
 function processFiles(files) {
-    const maxSize = 10 * 1024 * 1024;
+    const maxSize = 25 * 1024 * 1024; // 25MB limit
     const allowedTypes = ['har', 'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'pdf', 'txt', 'json'];
     
     for (const file of files) {
         const ext = file.name.split('.').pop().toLowerCase();
         
         if (file.size > maxSize) {
-            showToast(`File "${file.name}" exceeds 10MB limit`, 'error');
+            showToast(`File "${file.name}" exceeds 25MB limit`, 'error');
             continue;
         }
         
@@ -1110,14 +1115,14 @@ function closeAttachmentsModal() {
 }
 
 async function addFilesToEntry(entryId, files) {
-    const maxSize = 10 * 1024 * 1024;
+    const maxSize = 25 * 1024 * 1024; // 25MB limit
     const allowedTypes = ['har', 'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'pdf', 'txt', 'json'];
     
     for (const file of files) {
         const ext = file.name.split('.').pop().toLowerCase();
         
         if (file.size > maxSize) {
-            showToast(`File "${file.name}" exceeds 10MB limit`, 'error');
+            showToast(`File "${file.name}" exceeds 25MB limit`, 'error');
             continue;
         }
         
