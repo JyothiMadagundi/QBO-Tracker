@@ -647,18 +647,21 @@ body {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
-    overflow: auto;
     max-height: 70vh;
-    /* Enable horizontal scroll */
-    overflow-x: auto;
-    overflow-y: auto;
+    /* Enable both horizontal and vertical scroll */
+    overflow-x: scroll !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    display: block;
+    width: 100%;
 }
 
 .entries-table {
-    width: 100%;
     border-collapse: collapse;
     /* Force minimum width to enable horizontal scroll */
-    min-width: 1600px;
+    min-width: 1800px;
+    width: max-content;
+    table-layout: auto;
 }
 
 .entries-table th {
@@ -675,6 +678,7 @@ body {
     color: var(--text-muted);
     border-bottom: 1px solid var(--border-color);
     white-space: nowrap; /* Prevent header text wrapping */
+    min-width: 100px; /* Ensure columns have minimum width */
 }
 
 .entries-table td {
@@ -682,6 +686,7 @@ body {
     border-bottom: 1px solid var(--border-color);
     font-size: 0.85rem;
     white-space: nowrap; /* Prevent cell text wrapping */
+    min-width: 80px; /* Ensure cells have minimum width */
 }
 
 .entries-table tr:last-child td {
@@ -1492,8 +1497,8 @@ body {
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -1502,11 +1507,36 @@ body {
 
 ::-webkit-scrollbar-thumb {
     background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
+}
+
+/* Make scrollbar more visible on entries table */
+.entries-table-container::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.entries-table-container::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+}
+
+.entries-table-container::-webkit-scrollbar-thumb {
+    background: var(--accent-primary);
+    border-radius: 6px;
+    border: 2px solid var(--bg-tertiary);
+}
+
+.entries-table-container::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-secondary);
+}
+
+.entries-table-container::-webkit-scrollbar-corner {
+    background: var(--bg-tertiary);
 }
 
 /* Animations */
