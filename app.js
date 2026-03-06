@@ -330,8 +330,10 @@ const elements = {
     provider: document.getElementById('provider'),
     bankName: document.getElementById('bankName'),
     customerId: document.getElementById('customerId'),
+    customerName: document.getElementById('customerName'),
     callType: document.getElementById('callType'),
     requestedBy: document.getElementById('requestedBy'),
+    filesReceived: document.getElementById('filesReceived'),
     attendedBy: document.getElementById('attendedBy'),
     callBookedDate: document.getElementById('callBookedDate'),
     status: document.getElementById('status'),
@@ -511,10 +513,12 @@ async function openModal(entry = null) {
         elements.provider.value = entry.provider || '';
         elements.bankName.value = entry.bankName || '';
         elements.customerId.value = entry.customerId || '';
+        elements.customerName.value = entry.customerName || '';
         elements.callType.value = entry.callType || '';
         elements.requestedBy.value = entry.requestedBy || '';
         elements.attendedBy.value = entry.attendedBy || '';
         elements.callBookedDate.value = entry.callBookedDate || '';
+        elements.filesReceived.value = entry.filesReceived || 'no';
         elements.status.value = entry.status || 'pending';
         elements.connectionStatus.value = entry.connectionStatus || 'not_tested';
         elements.errorCode.value = entry.errorCode || '';
@@ -571,10 +575,12 @@ async function handleFormSubmit(e) {
         provider: elements.provider.value.trim(),
         bankName: elements.bankName.value.trim(),
         customerId: elements.customerId.value.trim(),
+        customerName: elements.customerName.value.trim(),
         callType: elements.callType.value,
         requestedBy: elements.requestedBy.value.trim(),
         attendedBy: elements.attendedBy.value.trim(),
         callBookedDate: elements.callBookedDate.value,
+        filesReceived: elements.filesReceived.value,
         status: elements.status.value,
         connectionStatus: elements.connectionStatus.value,
         errorCode: elements.errorCode.value.trim(),
@@ -661,6 +667,7 @@ function getFilteredEntries() {
         entries = entries.filter(e => 
             (e.bankName || '').toLowerCase().includes(search) ||
             (e.customerId || '').toLowerCase().includes(search) ||
+            (e.customerName || '').toLowerCase().includes(search) ||
             (e.provider || '').toLowerCase().includes(search) ||
             (e.requestedBy || '').toLowerCase().includes(search) ||
             (e.attendedBy || '').toLowerCase().includes(search) ||
@@ -785,25 +792,16 @@ async function renderEntries() {
             <td><span class="provider-badge">${escapeHtml(entry.provider || 'N/A')}</span></td>
             <td><strong>${escapeHtml(entry.bankName)}</strong></td>
             <td><code style="font-family: var(--font-mono); font-size: 0.85em;">${escapeHtml(entry.customerId)}</code></td>
+            <td>${escapeHtml(entry.customerName || '-')}</td>
             <td><span class="call-type-badge ${entry.callType}">${formatCallType(entry.callType)}</span></td>
             <td>${escapeHtml(entry.requestedBy || '-')}</td>
             <td>${escapeHtml(entry.attendedBy || '-')}</td>
             <td><span class="status-badge ${entry.status}">${formatStatus(entry.status)}</span></td>
+            <td><span class="files-received-badge ${entry.filesReceived === 'yes' ? 'yes' : 'no'}">${entry.filesReceived === 'yes' ? 'Yes' : 'No'}</span></td>
             <td class="notes-cell" title="${escapeHtml(entry.notes || '')}">
                 ${entry.notes 
                     ? `<span class="notes-preview">${escapeHtml(entry.notes.length > 50 ? entry.notes.substring(0, 50) + '...' : entry.notes)}</span>`
                     : `<span class="no-notes">-</span>`
-                }
-            </td>
-            <td>
-                ${fileCount > 0 
-                    ? `<span class="attachment-badge" onclick="openAttachmentsModal('${entry.id}')">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-                        </svg>
-                        ${fileCount} file${fileCount > 1 ? 's' : ''}
-                       </span>`
-                    : `<span class="no-attachments" onclick="openAttachmentsModal('${entry.id}')" style="cursor:pointer;">+ Add</span>`
                 }
             </td>
             <td>
@@ -1315,10 +1313,12 @@ async function exportData() {
         'Provider': entry.provider || '',
         'Bank Name': entry.bankName,
         'Customer ID': entry.customerId,
+        'Customer Name': entry.customerName || '',
         'Call Type': formatCallType(entry.callType),
         'Requested By': entry.requestedBy || '',
         'Attended By': entry.attendedBy || '',
         'Status': formatStatus(entry.status),
+        'Files Received': entry.filesReceived === 'yes' ? 'Yes' : 'No',
         'Connection Status': formatConnectionStatus(entry.connectionStatus).replace(/[⏳✓✗⚠]/g, '').trim(),
         'Error Code': entry.errorCode || '',
         'Notes': entry.notes || '',
@@ -1371,10 +1371,12 @@ async function importData(e) {
                     provider: row['Provider'] || row['provider'] || '',
                     bankName: row['Bank Name'] || row['bankName'] || row['Bank'] || '',
                     customerId: row['Customer ID'] || row['customerId'] || row['Customer/Case ID'] || row['Case ID'] || '',
+                    customerName: row['Customer Name'] || row['customerName'] || '',
                     callType: mapCallType(row['Call Type'] || row['callType'] || ''),
                     requestedBy: row['Requested By'] || row['requestedBy'] || '',
                     attendedBy: row['Attended By'] || row['attendedBy'] || '',
                     callBookedDate: row['Call Booked Date Raw'] || row['Call Booked Date'] || '',
+                    filesReceived: (row['Files Received'] || '').toLowerCase() === 'yes' ? 'yes' : 'no',
                     status: mapStatus(row['Status'] || row['status'] || 'pending'),
                     connectionStatus: mapConnectionStatus(row['Connection Status'] || ''),
                     errorCode: row['Error Code'] || row['errorCode'] || '',

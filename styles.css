@@ -647,7 +647,8 @@ body {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
-    overflow: hidden;
+    overflow: auto;
+    max-height: 70vh;
 }
 
 .entries-table {
@@ -657,10 +658,13 @@ body {
 
 .entries-table th {
     background: var(--bg-tertiary);
-    padding: 14px 16px;
+    padding: 12px 14px;
     text-align: left;
     font-size: 0.75rem;
     font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 10;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-muted);
@@ -668,9 +672,9 @@ body {
 }
 
 .entries-table td {
-    padding: 16px;
+    padding: 12px 14px;
     border-bottom: 1px solid var(--border-color);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
 }
 
 .entries-table tr:last-child td {
@@ -685,8 +689,8 @@ body {
 .status-badge {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
+    gap: 5px;
+    padding: 5px 10px;
     border-radius: 20px;
     font-size: 0.75rem;
     font-weight: 600;
@@ -741,10 +745,10 @@ body {
 .call-type-badge {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     padding: 4px 10px;
     border-radius: var(--radius-sm);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     font-weight: 500;
 }
 
@@ -769,7 +773,7 @@ body {
     align-items: center;
     padding: 4px 10px;
     border-radius: var(--radius-sm);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     font-weight: 600;
     background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(168, 85, 247, 0.15));
     color: #a78bfa;
@@ -789,8 +793,8 @@ body {
 }
 
 .action-btn {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     border: none;
     border-radius: var(--radius-sm);
     background: transparent;
@@ -1567,17 +1571,20 @@ body {
 
 /* Notes Column Styles */
 .notes-cell {
-    max-width: 200px;
+    max-width: 180px;
+    min-width: 100px;
     cursor: pointer;
 }
 
 .notes-preview {
     display: block;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--text-secondary);
     line-height: 1.4;
-    word-wrap: break-word;
-    white-space: pre-wrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 180px;
 }
 
 .notes-cell:hover .notes-preview {
@@ -1586,6 +1593,27 @@ body {
 
 .no-notes {
     color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+/* Files Received Badge */
+.files-received-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.files-received-badge.yes {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.files-received-badge.no {
+    background: var(--error-bg);
+    color: var(--error);
 }
 
 /* Preview Button Styles */

@@ -254,12 +254,13 @@
                                 <th>Provider</th>
                                 <th>Bank Name</th>
                                 <th>Customer ID</th>
+                                <th>Customer Name</th>
                                 <th>Call Type</th>
                                 <th>Requested By</th>
                                 <th>Attended By</th>
                                 <th>Status</th>
+                                <th>Files Received</th>
                                 <th>Notes</th>
-                                <th>Files</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -330,6 +331,12 @@
                         <input type="text" id="customerId" required placeholder="e.g., CASE-12345">
                     </div>
                     <div class="form-group">
+                        <label for="customerName">Customer Name</label>
+                        <input type="text" id="customerName" placeholder="e.g., John Smith">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
                         <label for="callType">Call Type *</label>
                         <select id="callType" required>
                             <option value="">Select call type</option>
@@ -384,22 +391,13 @@
                     <label for="notes">Notes</label>
                     <textarea id="notes" rows="3" placeholder="Add any additional details, observations, or next steps..."></textarea>
                 </div>
-                <div class="form-group full-width">
-                    <label>Attachments (HAR, HTML, Screenshots, etc.)</label>
-                    <div class="file-upload-area" id="fileUploadArea">
-                        <input type="file" id="fileInput" multiple hidden>
-                        <div class="file-upload-prompt" id="fileUploadPrompt">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                <polyline points="17 8 12 3 7 8"/>
-                                <line x1="12" y1="3" x2="12" y2="15"/>
-                            </svg>
-                            <span>Click to upload or drag & drop files</span>
-                            <small>Max 10MB per file • HAR, HTML, PNG, JPG, PDF</small>
-                        </div>
-                        <div class="attached-files" id="attachedFilesList">
-                            <!-- Files will be listed here -->
-                        </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="filesReceived">Files Received (HAR/HTML)</label>
+                        <select id="filesReceived">
+                            <option value="no">No</option>
+                            <option value="yes">Yes</option>
+                        </select>
                     </div>
                 </div>
                 <div class="form-actions">
