@@ -50,8 +50,6 @@ if (isFirebaseConfigured) {
 
 // Get all entries - merge Firebase and localStorage for team sync
 async function getEntries() {
-    console.log('=== GET ENTRIES ===');
-    
     // Get localStorage entries
     const localData = localStorage.getItem('qbo_tracker_entries');
     let localEntries = [];
@@ -61,19 +59,15 @@ async function getEntries() {
         console.error('Error parsing localStorage:', e);
         localEntries = [];
     }
-    console.log('Local entries count:', localEntries.length);
     
     // If Firebase is available, fetch and merge with local data
     if (firebaseAvailable) {
         try {
-            console.log('Fetching from Firebase for team sync...');
             const snapshot = await db.collection('entries').get();
             const firebaseEntries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            console.log('Firebase entries count:', firebaseEntries.length);
             
             // Merge: combine both sources, keeping the most recently updated version
             const mergedEntries = mergeEntries(localEntries, firebaseEntries);
-            console.log('Merged entries count:', mergedEntries.length);
             
             // Save merged data to localStorage
             localStorage.setItem('qbo_tracker_entries', JSON.stringify(mergedEntries));
@@ -81,37 +75,57 @@ async function getEntries() {
             return mergedEntries;
         } catch (error) {
             console.error('Firebase fetch error, using local data:', error);
-            return localEntries;
+            return deduplicateEntries(localEntries);
         }
     }
     
-    return localEntries;
+    return deduplicateEntries(localEntries);
+}
+
+// Remove duplicate entries based on ID
+function deduplicateEntries(entries) {
+    const seen = new Map();
+    const unique = [];
+    
+    for (const entry of entries) {
+        const id = String(entry.id);
+        if (!seen.has(id)) {
+            seen.set(id, true);
+            unique.push(entry);
+        }
+    }
+    
+    return unique;
 }
 
 // Merge entries from two sources, keeping the most recent version of each
 function mergeEntries(localEntries, firebaseEntries) {
     const entryMap = new Map();
     
-    // Add all local entries to map
-    for (const entry of localEntries) {
-        entryMap.set(String(entry.id), entry);
+    // Add all Firebase entries first (they are the source of truth for team data)
+    for (const fbEntry of firebaseEntries) {
+        if (fbEntry && fbEntry.id) {
+            entryMap.set(String(fbEntry.id), fbEntry);
+        }
     }
     
-    // Merge Firebase entries - keep the one with more recent updatedAt
-    for (const fbEntry of firebaseEntries) {
-        const id = String(fbEntry.id);
+    // Then check local entries - only add if newer or not in Firebase
+    for (const localEntry of localEntries) {
+        if (!localEntry || !localEntry.id) continue;
+        
+        const id = String(localEntry.id);
         const existing = entryMap.get(id);
         
         if (!existing) {
-            // New entry from Firebase (added by another team member)
-            entryMap.set(id, fbEntry);
+            // Entry only exists locally (maybe Firebase sync failed)
+            entryMap.set(id, localEntry);
         } else {
             // Entry exists in both - keep the one with more recent updatedAt
+            const localTime = localEntry.updatedAt ? new Date(localEntry.updatedAt).getTime() : 0;
             const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-            const fbTime = fbEntry.updatedAt ? new Date(fbEntry.updatedAt).getTime() : 0;
             
-            if (fbTime > existingTime) {
-                entryMap.set(id, fbEntry);
+            if (localTime > existingTime) {
+                entryMap.set(id, localEntry);
             }
         }
     }
@@ -129,8 +143,6 @@ function mergeEntries(localEntries, firebaseEntries) {
 
 // Save entry to Firebase and localStorage
 async function saveEntry(entryData) {
-    console.log('saveEntry called, entryData:', entryData);
-    
     // Generate ID if new entry
     if (!entryData.id) {
         entryData.id = generateId();
@@ -138,14 +150,11 @@ async function saveEntry(entryData) {
     
     // Save to localStorage first (instant, reliable)
     const savedToLocal = saveToLocalStorage(entryData);
-    console.log('Saved to localStorage:', savedToLocal.id);
     
-    // Save to Firebase for team sync (with longer timeout)
+    // Save to Firebase for team sync
     if (firebaseAvailable) {
         try {
-            console.log('Saving to Firebase for team sync...');
             await db.collection('entries').doc(String(entryData.id)).set(entryData);
-            console.log('Successfully saved to Firebase - other team members can now see this entry');
         } catch (error) {
             console.error('Firebase save failed:', error);
             showToast('Saved locally. Firebase sync failed - other team members may not see this update.', 'error');
@@ -157,12 +166,8 @@ async function saveEntry(entryData) {
 
 // Helper function to save to localStorage
 function saveToLocalStorage(entryData) {
-    console.log('=== SAVE TO LOCALSTORAGE ===');
-    console.log('Entry to save:', JSON.stringify(entryData, null, 2));
-    
     // Get current entries
     const rawData = localStorage.getItem('qbo_tracker_entries');
-    console.log('Raw localStorage data length:', rawData ? rawData.length : 0);
     
     let entries = [];
     try {
@@ -172,51 +177,31 @@ function saveToLocalStorage(entryData) {
         entries = [];
     }
     
-    console.log('Current entries count:', entries.length);
-    console.log('Current entry IDs:', entries.map(e => e.id));
-    
     // Use string comparison for IDs to handle type mismatches
     const entryIdStr = String(entryData.id);
     const index = entries.findIndex(e => String(e.id) === entryIdStr);
-    
-    console.log('Looking for entry with ID:', entryIdStr, 'Found at index:', index);
     
     if (index !== -1) {
         // Update existing entry - preserve createdAt if not in new data
         if (!entryData.createdAt && entries[index].createdAt) {
             entryData.createdAt = entries[index].createdAt;
         }
-        console.log('UPDATING entry at index:', index);
-        console.log('Old entry:', JSON.stringify(entries[index], null, 2));
         entries[index] = { ...entryData }; // Make a copy
-        console.log('New entry:', JSON.stringify(entries[index], null, 2));
     } else {
         // Add new entry
-        console.log('ADDING new entry');
         entries.unshift({ ...entryData }); // Make a copy
     }
     
     // Save back to localStorage
-    const newData = JSON.stringify(entries);
-    console.log('Saving to localStorage, new data length:', newData.length);
-    localStorage.setItem('qbo_tracker_entries', newData);
-    
-    // Verify the save
-    const verifyData = localStorage.getItem('qbo_tracker_entries');
-    const verifyEntries = JSON.parse(verifyData);
-    console.log('VERIFY: Total entries after save:', verifyEntries.length);
-    console.log('VERIFY: Entry IDs after save:', verifyEntries.map(e => e.id));
+    localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
     
     return entryData;
 }
 
 // Delete entry from Firebase or localStorage
 async function deleteEntryFromDB(entryId) {
-    console.log('Deleting entry:', entryId);
-    
     // Delete from localStorage
     deleteFromLocalStorage(entryId);
-    console.log('Deleted from localStorage');
     
     // Also delete associated files
     await deleteFilesForEntry(entryId);
@@ -225,7 +210,6 @@ async function deleteEntryFromDB(entryId) {
     if (firebaseAvailable) {
         try {
             await db.collection('entries').doc(String(entryId)).delete();
-            console.log('Deleted from Firebase - removed for all team members');
         } catch (error) {
             console.error('Firebase delete failed:', error);
             showToast('Deleted locally. Firebase sync failed.', 'error');
@@ -234,11 +218,10 @@ async function deleteEntryFromDB(entryId) {
 }
 
 function deleteFromLocalStorage(entryId) {
-    console.log('Deleting from localStorage:', entryId);
+    const entryIdStr = String(entryId);
     let entries = JSON.parse(localStorage.getItem('qbo_tracker_entries') || '[]');
-    entries = entries.filter(e => e.id !== entryId);
+    entries = entries.filter(e => String(e.id) !== entryIdStr);
     localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
-    console.log('Deleted from localStorage, remaining entries:', entries.length);
 }
 
 function generateId() {
@@ -535,14 +518,12 @@ function showConfigWarning() {
 }
 
 async function refreshData() {
-    console.log('=== REFRESH DATA ===');
-    allEntries = await getEntries();
-    console.log('After getEntries, allEntries count:', allEntries.length);
-    console.log('Entry IDs in allEntries:', allEntries.map(e => e.id));
+    const entries = await getEntries();
+    // Extra safeguard: deduplicate before assigning to global cache
+    allEntries = deduplicateEntries(entries);
     updateDashboard();
     await renderEntries();
     renderBanks();
-    console.log('=== REFRESH DATA COMPLETE ===');
 }
 
 // =====================================================
@@ -675,15 +656,10 @@ async function checkDuplicateProvider(provider) {
         
         // Skip check if provider is empty or a placeholder value
         if (PLACEHOLDER_PROVIDERS.includes(providerLower)) {
-            console.log('Provider is a placeholder value, skipping duplicate check:', providerLower);
             return null;
         }
         
         const entries = await getEntries();
-        
-        console.log('=== DUPLICATE CHECK ===');
-        console.log('Provider to check:', providerLower);
-        console.log('Total entries:', entries.length);
         
         for (const entry of entries) {
             const entryProviderLower = (entry.provider || '').toLowerCase().trim();
@@ -695,12 +671,10 @@ async function checkDuplicateProvider(provider) {
             
             // Check if provider matches
             if (entryProviderLower === providerLower) {
-                console.log('DUPLICATE FOUND! Entry:', entry.id, 'Bank:', entry.bankName);
                 return entry;
             }
         }
         
-        console.log('No duplicate found');
         return null;
     } catch (error) {
         console.error('Error checking duplicate:', error);
@@ -710,7 +684,6 @@ async function checkDuplicateProvider(provider) {
 
 async function handleFormSubmit(e) {
     e.preventDefault();
-    console.log('Form submit started...');
     
     const entryData = {
         provider: elements.provider.value.trim(),
@@ -729,15 +702,10 @@ async function handleFormSubmit(e) {
         updatedAt: new Date().toISOString()
     };
     
-    console.log('Entry data:', entryData);
-    
     const isEditing = !!elements.entryId.value;
     const editingEntryId = isEditing ? elements.entryId.value : null;
     
-    console.log('isEditing:', isEditing, 'editingEntryId:', editingEntryId);
-    
     // Check for duplicate Provider ID (placeholders like "Not yet created" are allowed)
-    console.log('Checking for duplicate Provider...');
     const existingEntry = await checkDuplicateProvider(entryData.provider);
     
     // If duplicate found, check if it's the same entry being edited
@@ -745,7 +713,6 @@ async function handleFormSubmit(e) {
         const isSameEntry = isEditing && String(existingEntry.id) === String(editingEntryId);
         
         if (!isSameEntry) {
-            console.log('Duplicate found and it is a different entry');
             showToast(`Provider ID "${entryData.provider}" already exists for bank "${existingEntry.bankName}"!`, 'error');
             elements.provider.focus();
             elements.provider.classList.add('input-error');
@@ -753,8 +720,6 @@ async function handleFormSubmit(e) {
                 elements.provider.classList.remove('input-error');
             }, 3000);
             return;
-        } else {
-            console.log('Duplicate found but it is the same entry being edited - OK');
         }
     }
     
@@ -764,9 +729,7 @@ async function handleFormSubmit(e) {
         entryData.createdAt = new Date().toISOString();
     }
     
-    console.log('Saving entry...');
     const savedEntry = await saveEntry(entryData);
-    console.log('Save result:', savedEntry);
     
     if (savedEntry) {
         showToast(isEditing ? 'Entry updated successfully' : 'Entry added successfully', 'success');
@@ -984,14 +947,11 @@ async function renderEntries() {
 
 // Global functions
 window.editEntry = async function(id) {
-    console.log('Editing entry with ID:', id, 'Type:', typeof id);
     // Compare as strings to handle type mismatches
     const entry = allEntries.find(e => String(e.id) === String(id));
-    console.log('Found entry:', entry);
     if (entry) {
         await openModal(entry);
     } else {
-        console.error('Entry not found with ID:', id);
         showToast('Entry not found', 'error');
     }
 };
@@ -1213,9 +1173,6 @@ async function importData(e) {
             
             showToast(message, failedCount > 0 ? 'error' : 'success');
             await refreshData();
-            
-            // Log summary to console for debugging
-            console.log('Import Summary:', { importedCount, failedCount, skippedCount, total: jsonData.length });
             
         } catch (error) {
             console.error('Import error:', error);
