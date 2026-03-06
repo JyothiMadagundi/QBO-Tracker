@@ -578,13 +578,16 @@ function closeEntryModal() {
     elements.entryForm.reset();
 }
 
-// Check if Customer ID already exists
-async function checkDuplicateCustomerId(customerId, excludeEntryId = null) {
+// Check if Provider + Customer ID combination already exists
+async function checkDuplicateEntry(provider, customerId, excludeEntryId = null) {
     try {
         const entries = await getEntries();
         return entries.find(entry => 
+            entry.provider && 
             entry.customerId && 
+            provider &&
             customerId &&
+            entry.provider.toLowerCase() === provider.toLowerCase() &&
             entry.customerId.toLowerCase() === customerId.toLowerCase() && 
             entry.id !== excludeEntryId
         );
@@ -622,16 +625,20 @@ async function handleFormSubmit(e) {
     
     console.log('isEditing:', isEditing, 'editingEntryId:', editingEntryId);
     
-    // Check for duplicate Customer ID
+    // Check for duplicate Provider + Customer ID combination
     console.log('Checking for duplicates...');
-    const existingEntry = await checkDuplicateCustomerId(entryData.customerId, editingEntryId);
+    const existingEntry = await checkDuplicateEntry(entryData.provider, entryData.customerId, editingEntryId);
     console.log('Duplicate check result:', existingEntry);
     
     if (existingEntry) {
-        showToast(`Customer ID "${entryData.customerId}" already exists for bank "${existingEntry.bankName}"!`, 'error');
-        elements.customerId.focus();
+        showToast(`Entry already exists: Provider "${entryData.provider}" with Customer ID "${entryData.customerId}" (Bank: ${existingEntry.bankName})`, 'error');
+        elements.provider.focus();
+        elements.provider.classList.add('input-error');
         elements.customerId.classList.add('input-error');
-        setTimeout(() => elements.customerId.classList.remove('input-error'), 3000);
+        setTimeout(() => {
+            elements.provider.classList.remove('input-error');
+            elements.customerId.classList.remove('input-error');
+        }, 3000);
         return;
     }
     
