@@ -443,11 +443,6 @@ const elements = {
     cancelDeleteBtn: document.getElementById('cancelDeleteBtn'),
     confirmDeleteBtn: document.getElementById('confirmDeleteBtn'),
     
-    // Import/Export
-    exportBtn: document.getElementById('exportBtn'),
-    importBtn: document.getElementById('importBtn'),
-    importFile: document.getElementById('importFile'),
-    
     // Toast
     toast: document.getElementById('toast')
 };
@@ -467,8 +462,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     initNavigation();
     initModal();
     initFilters();
-    initImportExport();
-    // File upload functionality removed - using "Files Received" dropdown instead
     
     await refreshData();
 });
@@ -1033,169 +1026,6 @@ function renderBanks() {
             ` : ''}
         </div>
     `).join('');
-}
-
-// =====================================================
-// IMPORT/EXPORT
-// =====================================================
-
-function initImportExport() {
-    elements.exportBtn.addEventListener('click', exportData);
-    elements.importBtn.addEventListener('click', () => elements.importFile.click());
-    elements.importFile.addEventListener('change', importData);
-}
-
-async function exportData() {
-    const entries = allEntries;
-    
-    if (entries.length === 0) {
-        showToast('No entries to export', 'error');
-        return;
-    }
-    
-    const excelData = entries.map(entry => ({
-        'Created Date': formatDate(entry.createdAt),
-        'Call Booked Date': entry.callBookedDate ? formatDateInput(entry.callBookedDate) : '',
-        'Provider': entry.provider || '',
-        'Bank Name': entry.bankName,
-        'Customer ID': entry.customerId,
-        'Customer Name': entry.customerName || '',
-        'Call Type': formatCallType(entry.callType),
-        'Requested By': entry.requestedBy || '',
-        'Attended By': entry.attendedBy || '',
-        'Status': formatStatus(entry.status),
-        'Files Received': entry.filesReceived === 'yes' ? 'Yes' : 'No',
-        'Connection Status': formatConnectionStatus(entry.connectionStatus).replace(/[⏳✓✗⚠]/g, '').trim(),
-        'Error Code': entry.errorCode || '',
-        'Notes': entry.notes || '',
-        'Created At': entry.createdAt,
-        'Updated At': entry.updatedAt || '',
-        'Call Booked Date Raw': entry.callBookedDate || '',
-        'ID': entry.id
-    }));
-    
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(excelData);
-    
-    ws['!cols'] = [
-        { wch: 12 }, { wch: 14 }, { wch: 15 }, { wch: 20 },
-        { wch: 18 }, { wch: 20 }, { wch: 15 }, { wch: 15 },
-        { wch: 12 }, { wch: 18 }, { wch: 15 }, { wch: 30 },
-        { wch: 22 }, { wch: 22 }, { wch: 14 }, { wch: 20 }
-    ];
-    
-    XLSX.utils.book_append_sheet(wb, ws, 'QBO Tracker Data');
-    
-    const fileName = `qbo-tracker-export-${new Date().toISOString().split('T')[0]}.xlsx`;
-    XLSX.writeFile(wb, fileName);
-    
-    showToast('Data exported to Excel successfully', 'success');
-}
-
-async function importData(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    const reader = new FileReader();
-    reader.onload = async function(event) {
-        try {
-            const data = new Uint8Array(event.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
-            
-            const sheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json(worksheet);
-            
-            if (jsonData.length === 0) {
-                throw new Error('No data found in Excel file');
-            }
-            
-            let importedCount = 0;
-            let failedCount = 0;
-            let skippedCount = 0;
-            
-            // Show progress
-            showToast(`Importing ${jsonData.length} entries...`, 'success');
-            
-            for (const row of jsonData) {
-                const entryData = {
-                    provider: row['Provider'] || row['provider'] || '',
-                    bankName: row['Bank Name'] || row['bankName'] || row['Bank'] || '',
-                    customerId: row['Customer ID'] || row['customerId'] || row['Customer/Case ID'] || row['Case ID'] || '',
-                    customerName: row['Customer Name'] || row['customerName'] || '',
-                    callType: mapCallType(row['Call Type'] || row['callType'] || ''),
-                    requestedBy: row['Requested By'] || row['requestedBy'] || '',
-                    attendedBy: row['Attended By'] || row['attendedBy'] || '',
-                    callBookedDate: row['Call Booked Date Raw'] || row['Call Booked Date'] || '',
-                    filesReceived: (row['Files Received'] || '').toLowerCase() === 'yes' ? 'yes' : 'no',
-                    status: mapStatus(row['Status'] || row['status'] || 'pending'),
-                    connectionStatus: mapConnectionStatus(row['Connection Status'] || ''),
-                    errorCode: row['Error Code'] || row['errorCode'] || '',
-                    notes: row['Notes'] || row['notes'] || '',
-                    createdAt: row['Created At'] || row['createdAt'] || new Date().toISOString(),
-                    updatedAt: new Date().toISOString()
-                };
-                
-                if (entryData.bankName && entryData.customerId) {
-                    try {
-                        const savedEntry = await saveEntry(entryData);
-                        if (savedEntry) {
-                            importedCount++;
-                        } else {
-                            failedCount++;
-                            console.error('Failed to save entry:', entryData);
-                        }
-                    } catch (saveError) {
-                        failedCount++;
-                        console.error('Error saving entry:', saveError, entryData);
-                    }
-                } else {
-                    skippedCount++;
-                    console.warn('Skipped row - missing bankName or customerId:', row);
-                }
-            }
-            
-            // Build result message
-            let message = `Imported ${importedCount} entries`;
-            if (failedCount > 0) message += `, ${failedCount} failed`;
-            if (skippedCount > 0) message += `, ${skippedCount} skipped`;
-            
-            showToast(message, failedCount > 0 ? 'error' : 'success');
-            await refreshData();
-            
-        } catch (error) {
-            console.error('Import error:', error);
-            showToast('Error importing Excel: ' + error.message, 'error');
-        }
-    };
-    
-    reader.readAsArrayBuffer(file);
-    e.target.value = '';
-}
-
-function mapCallType(value) {
-    const lower = (value || '').toLowerCase();
-    if (lower.includes('har') || lower.includes('html') || lower.includes('collection')) return 'har_collection';
-    if (lower.includes('verification') || lower.includes('attempt')) return 'verification_attempt';
-    if (lower.includes('issue') || lower.includes('check')) return 'issue_check';
-    return 'har_collection';
-}
-
-function mapStatus(value) {
-    const lower = (value || '').toLowerCase();
-    if (lower.includes('progress')) return 'in_progress';
-    if (lower.includes('complete')) return 'completed';
-    if (lower.includes('error') || lower.includes('issue')) return 'error';
-    return 'pending';
-}
-
-function mapConnectionStatus(value) {
-    const lower = (value || '').toLowerCase();
-    if (lower.includes('files collected') || lower.includes('collected')) return 'files_collected';
-    if (lower.includes('success') || lower.includes('connected')) return 'success';
-    if (lower.includes('failed') || lower.includes('fail')) return 'failed';
-    if (lower.includes('error') || lower.includes('code')) return 'error_code';
-    return 'not_tested';
 }
 
 // =====================================================
