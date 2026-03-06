@@ -52,29 +52,38 @@ if (isFirebaseConfigured) {
 async function getEntries() {
     console.log('getEntries called, firebaseAvailable:', firebaseAvailable);
     
+    // Always try localStorage first for immediate response
+    const localData = localStorage.getItem('qbo_tracker_entries');
+    const localEntries = localData ? JSON.parse(localData) : [];
+    console.log('Local entries count:', localEntries.length);
+    
     if (firebaseAvailable) {
         try {
             console.log('Fetching entries from Firebase...');
-            const snapshot = await db.collection('entries').orderBy('createdAt', 'desc').get();
+            // Add timeout to Firebase call
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Firebase timeout')), 5000)
+            );
+            const firebasePromise = db.collection('entries').orderBy('createdAt', 'desc').get();
+            
+            const snapshot = await Promise.race([firebasePromise, timeoutPromise]);
             const entries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             console.log('Fetched', entries.length, 'entries from Firebase');
+            
+            // Sync Firebase data to localStorage
+            if (entries.length > 0) {
+                localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
+            }
+            
             return entries;
         } catch (error) {
-            console.error('Error getting entries from Firebase:', error);
-            console.log('Falling back to localStorage...');
-            // Fallback to localStorage if Firebase fails
-            const data = localStorage.getItem('qbo_tracker_entries');
-            const entries = data ? JSON.parse(data) : [];
-            console.log('Fetched', entries.length, 'entries from localStorage (fallback)');
-            return entries;
+            console.error('Error/timeout getting entries from Firebase:', error);
+            console.log('Using localStorage data instead');
+            return localEntries;
         }
     } else {
-        // Fallback to localStorage
         console.log('Using localStorage');
-        const data = localStorage.getItem('qbo_tracker_entries');
-        const entries = data ? JSON.parse(data) : [];
-        console.log('Fetched', entries.length, 'entries from localStorage');
-        return entries;
+        return localEntries;
     }
 }
 
@@ -82,45 +91,43 @@ async function getEntries() {
 async function saveEntry(entryData) {
     console.log('saveEntry called, firebaseAvailable:', firebaseAvailable, 'entryData:', entryData);
     
+    // Generate ID if new entry
+    if (!entryData.id) {
+        entryData.id = generateId();
+    }
+    
+    // ALWAYS save to localStorage first for reliability
+    const savedToLocal = saveToLocalStorage(entryData);
+    console.log('Saved to localStorage:', savedToLocal.id);
+    
+    // Then try Firebase if available (async, don't wait)
     if (firebaseAvailable) {
         try {
-            if (entryData.id) {
-                // Update existing
-                console.log('Updating existing entry:', entryData.id);
-                await db.collection('entries').doc(entryData.id).update(entryData);
-            } else {
-                // Add new
-                console.log('Adding new entry to Firebase...');
-                const docRef = await db.collection('entries').add(entryData);
-                entryData.id = docRef.id;
-                console.log('Entry saved successfully with ID:', docRef.id);
-            }
-            return entryData;
+            console.log('Also saving to Firebase...');
+            // Try Firebase with timeout
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Firebase save timeout')), 5000)
+            );
+            
+            const firebasePromise = db.collection('entries').doc(entryData.id).set(entryData);
+            await Promise.race([firebasePromise, timeoutPromise]);
+            console.log('Entry also saved to Firebase');
         } catch (error) {
-            console.error('Error saving entry to Firebase:', error);
-            console.log('Falling back to localStorage...');
-            // Fallback to localStorage if Firebase fails
-            return saveToLocalStorage(entryData);
+            console.warn('Firebase save failed/timed out, but localStorage save succeeded:', error.message);
         }
-    } else {
-        // Use localStorage
-        return saveToLocalStorage(entryData);
     }
+    
+    return savedToLocal;
 }
 
 // Helper function to save to localStorage
 function saveToLocalStorage(entryData) {
     console.log('Saving to localStorage');
     const entries = JSON.parse(localStorage.getItem('qbo_tracker_entries') || '[]');
-    if (entryData.id) {
-        const index = entries.findIndex(e => e.id === entryData.id);
-        if (index !== -1) {
-            entries[index] = entryData;
-        } else {
-            entries.unshift(entryData);
-        }
+    const index = entries.findIndex(e => e.id === entryData.id);
+    if (index !== -1) {
+        entries[index] = entryData;
     } else {
-        entryData.id = generateId();
         entries.unshift(entryData);
     }
     localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
@@ -132,19 +139,25 @@ function saveToLocalStorage(entryData) {
 async function deleteEntryFromDB(entryId) {
     console.log('Deleting entry:', entryId, 'firebaseAvailable:', firebaseAvailable);
     
+    // ALWAYS delete from localStorage first
+    deleteFromLocalStorage(entryId);
+    console.log('Deleted from localStorage');
+    
+    // Also delete associated files
+    await deleteFilesForEntry(entryId);
+    
+    // Then try Firebase if available
     if (firebaseAvailable) {
         try {
-            await db.collection('entries').doc(entryId).delete();
-            // Also delete associated files
-            await deleteFilesForEntry(entryId);
-            console.log('Entry deleted from Firebase');
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Firebase delete timeout')), 5000)
+            );
+            const firebasePromise = db.collection('entries').doc(entryId).delete();
+            await Promise.race([firebasePromise, timeoutPromise]);
+            console.log('Entry also deleted from Firebase');
         } catch (error) {
-            console.error('Error deleting entry from Firebase:', error);
-            // Fallback to localStorage
-            deleteFromLocalStorage(entryId);
+            console.warn('Firebase delete failed/timed out:', error.message);
         }
-    } else {
-        deleteFromLocalStorage(entryId);
     }
 }
 
@@ -399,28 +412,11 @@ const elements = {
     importBtn: document.getElementById('importBtn'),
     importFile: document.getElementById('importFile'),
     
-    // File Upload
-    fileUploadArea: document.getElementById('fileUploadArea'),
-    fileUploadPrompt: document.getElementById('fileUploadPrompt'),
-    fileInput: document.getElementById('fileInput'),
-    attachedFilesList: document.getElementById('attachedFilesList'),
-    
-    // Attachments Modal
-    attachmentsModal: document.getElementById('attachmentsModal'),
-    closeAttachmentsModal: document.getElementById('closeAttachmentsModal'),
-    attachmentEntryInfo: document.getElementById('attachmentEntryInfo'),
-    attachmentsModalList: document.getElementById('attachmentsModalList'),
-    emptyAttachments: document.getElementById('emptyAttachments'),
-    addMoreFiles: document.getElementById('addMoreFiles'),
-    addFilesInput: document.getElementById('addFilesInput'),
-    
     // Toast
     toast: document.getElementById('toast')
 };
 
 let deleteTargetId = null;
-let currentEntryFiles = [];
-let currentAttachmentsEntryId = null;
 let allEntries = []; // Cache for filtered views
 
 // =====================================================
@@ -436,8 +432,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initModal();
     initFilters();
     initImportExport();
-    initFileUpload();
-    initAttachmentsModal();
+    // File upload functionality removed - using "Files Received" dropdown instead
     
     await refreshData();
 });
@@ -552,7 +547,6 @@ function initModal() {
 
 async function openModal(entry = null) {
     elements.entryModal.classList.add('active');
-    currentEntryFiles = [];
     
     if (entry) {
         elements.modalTitle.textContent = 'Edit Entry';
@@ -570,49 +564,18 @@ async function openModal(entry = null) {
         elements.connectionStatus.value = entry.connectionStatus || 'not_tested';
         elements.errorCode.value = entry.errorCode || '';
         elements.notes.value = entry.notes || '';
-        
-        const existingFiles = await getFilesForEntry(entry.id);
-        renderExistingFiles(existingFiles);
     } else {
         elements.modalTitle.textContent = 'Add New Entry';
         elements.entryForm.reset();
         elements.entryId.value = '';
-        elements.attachedFilesList.innerHTML = '';
     }
     
     elements.provider.focus();
 }
 
-function renderExistingFiles(files) {
-    if (files.length === 0) {
-        elements.attachedFilesList.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">No files attached. Add new files above.</p>';
-        return;
-    }
-    
-    elements.attachedFilesList.innerHTML = `
-        <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px;">Existing files (${files.length}):</p>
-        ${files.map(f => `
-            <div class="attached-file">
-                <div class="attached-file-info">
-                    <div class="attached-file-icon ${getFileIconClass(f.name)}">
-                        ${getFileIcon(f.name)}
-                    </div>
-                    <div class="attached-file-details">
-                        <span class="attached-file-name">${escapeHtml(f.name)}</span>
-                        <span class="attached-file-size">${formatFileSize(f.size)}</span>
-                    </div>
-                </div>
-            </div>
-        `).join('')}
-        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 12px;">Add more files above ↑</p>
-    `;
-}
-
 function closeEntryModal() {
     elements.entryModal.classList.remove('active');
     elements.entryForm.reset();
-    currentEntryFiles = [];
-    elements.attachedFilesList.innerHTML = '';
 }
 
 // Check if Customer ID already exists
@@ -683,18 +646,6 @@ async function handleFormSubmit(e) {
     console.log('Save result:', savedEntry);
     
     if (savedEntry) {
-        // Save any new files
-        if (currentEntryFiles.length > 0) {
-            for (const f of currentEntryFiles) {
-                try {
-                    await saveFile(savedEntry.id, f.file);
-                } catch (error) {
-                    console.error('Error saving file:', error);
-                }
-            }
-            currentEntryFiles = [];
-        }
-        
         showToast(isEditing ? 'Entry updated successfully' : 'Entry added successfully', 'success');
     }
     
@@ -1005,373 +956,6 @@ function renderBanks() {
         </div>
     `).join('');
 }
-
-// =====================================================
-// FILE UPLOAD
-// =====================================================
-
-function initFileUpload() {
-    elements.fileUploadPrompt.addEventListener('click', () => {
-        elements.fileInput.click();
-    });
-    
-    elements.fileInput.addEventListener('change', handleFileSelect);
-    
-    elements.fileUploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        elements.fileUploadArea.classList.add('drag-over');
-    });
-    
-    elements.fileUploadArea.addEventListener('dragleave', () => {
-        elements.fileUploadArea.classList.remove('drag-over');
-    });
-    
-    elements.fileUploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        elements.fileUploadArea.classList.remove('drag-over');
-        processFiles(e.dataTransfer.files);
-    });
-}
-
-function handleFileSelect(e) {
-    processFiles(e.target.files);
-    e.target.value = '';
-}
-
-function processFiles(files) {
-    const maxSize = 100 * 1024 * 1024; // 100MB limit
-    const allowedTypes = ['har', 'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'pdf', 'txt', 'json', 'zip', 'doc', 'docx', 'xls', 'xlsx'];
-    
-    for (const file of files) {
-        const ext = file.name.split('.').pop().toLowerCase();
-        
-        if (file.size > maxSize) {
-            showToast(`File "${file.name}" exceeds 100MB limit`, 'error');
-            continue;
-        }
-        
-        if (!allowedTypes.includes(ext)) {
-            showToast(`File type ".${ext}" not allowed`, 'error');
-            continue;
-        }
-        
-        currentEntryFiles.push({
-            tempId: generateId(),
-            file: file,
-            name: file.name,
-            size: file.size,
-            type: file.type
-        });
-    }
-    
-    renderAttachedFiles();
-}
-
-function renderAttachedFiles() {
-    if (currentEntryFiles.length === 0) {
-        elements.attachedFilesList.innerHTML = '';
-        return;
-    }
-    
-    elements.attachedFilesList.innerHTML = currentEntryFiles.map(f => `
-        <div class="attached-file">
-            <div class="attached-file-info">
-                <div class="attached-file-icon ${getFileIconClass(f.name)}">
-                    ${getFileIcon(f.name)}
-                </div>
-                <div class="attached-file-details">
-                    <span class="attached-file-name">${escapeHtml(f.name)}</span>
-                    <span class="attached-file-size">${formatFileSize(f.size)}</span>
-                </div>
-            </div>
-            <div class="attached-file-actions">
-                <button class="file-action-btn delete" title="Remove" onclick="removeAttachedFile('${f.tempId}')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"/>
-                        <line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                </button>
-            </div>
-        </div>
-    `).join('');
-}
-
-window.removeAttachedFile = function(tempId) {
-    currentEntryFiles = currentEntryFiles.filter(f => f.tempId !== tempId);
-    renderAttachedFiles();
-};
-
-// =====================================================
-// ATTACHMENTS MODAL
-// =====================================================
-
-function initAttachmentsModal() {
-    elements.closeAttachmentsModal.addEventListener('click', closeAttachmentsModal);
-    elements.attachmentsModal.addEventListener('click', (e) => {
-        if (e.target === elements.attachmentsModal) closeAttachmentsModal();
-    });
-    
-    elements.addMoreFiles.addEventListener('click', () => {
-        elements.addFilesInput.click();
-    });
-    
-    elements.addFilesInput.addEventListener('change', async (e) => {
-        await addFilesToEntry(currentAttachmentsEntryId, e.target.files);
-        e.target.value = '';
-        await renderAttachmentsModalFiles(currentAttachmentsEntryId);
-        await refreshData();
-    });
-}
-
-async function openAttachmentsModal(entryId) {
-    currentAttachmentsEntryId = entryId;
-    const entry = allEntries.find(e => e.id === entryId);
-    
-    if (!entry) return;
-    
-    elements.attachmentEntryInfo.innerHTML = `
-        <span class="bank-name">${escapeHtml(entry.provider ? entry.provider + ' - ' : '')}${escapeHtml(entry.bankName)}</span>
-        <span class="case-id">${escapeHtml(entry.customerId)}</span>
-    `;
-    
-    await renderAttachmentsModalFiles(entryId);
-    elements.attachmentsModal.classList.add('active');
-}
-
-window.openAttachmentsModal = openAttachmentsModal;
-
-async function renderAttachmentsModalFiles(entryId) {
-    const files = await getFilesForEntry(entryId);
-    
-    if (files.length === 0) {
-        elements.attachmentsModalList.innerHTML = '';
-        elements.emptyAttachments.classList.add('visible');
-        return;
-    }
-    
-    elements.emptyAttachments.classList.remove('visible');
-    
-    elements.attachmentsModalList.innerHTML = files.map(f => `
-        <div class="attached-file">
-            <div class="attached-file-info">
-                <div class="attached-file-icon ${getFileIconClass(f.name)}">
-                    ${getFileIcon(f.name)}
-                </div>
-                <div class="attached-file-details">
-                    <span class="attached-file-name">${escapeHtml(f.name)}</span>
-                    <span class="attached-file-size">${formatFileSize(f.size)} • ${formatDate(f.uploadedAt)}</span>
-                </div>
-            </div>
-            <div class="attached-file-actions">
-                <button class="file-action-btn preview" title="Preview/Open" onclick="previewFile('${f.id}')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                        <circle cx="12" cy="12" r="3"/>
-                    </svg>
-                </button>
-                <button class="file-action-btn download" title="Download" onclick="downloadFile('${f.id}')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="7 10 12 15 17 10"/>
-                        <line x1="12" y1="15" x2="12" y2="3"/>
-                    </svg>
-                </button>
-                <button class="file-action-btn delete" title="Delete" onclick="deleteAttachment('${f.id}', '${f.storagePath || ''}')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"/>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
-                </button>
-            </div>
-        </div>
-    `).join('');
-}
-
-function closeAttachmentsModal() {
-    elements.attachmentsModal.classList.remove('active');
-    currentAttachmentsEntryId = null;
-}
-
-async function addFilesToEntry(entryId, files) {
-    const maxSize = 100 * 1024 * 1024; // 100MB limit
-    const allowedTypes = ['har', 'html', 'htm', 'png', 'jpg', 'jpeg', 'gif', 'pdf', 'txt', 'json', 'zip', 'doc', 'docx', 'xls', 'xlsx'];
-    
-    for (const file of files) {
-        const ext = file.name.split('.').pop().toLowerCase();
-        
-        if (file.size > maxSize) {
-            showToast(`File "${file.name}" exceeds 100MB limit`, 'error');
-            continue;
-        }
-        
-        if (!allowedTypes.includes(ext)) {
-            showToast(`File type ".${ext}" not allowed`, 'error');
-            continue;
-        }
-        
-        try {
-            await saveFile(entryId, file);
-        } catch (error) {
-            showToast(`Error saving "${file.name}"`, 'error');
-        }
-    }
-    
-    showToast('Files uploaded successfully', 'success');
-}
-
-window.downloadFile = async function(fileId) {
-    await downloadFileById(fileId);
-};
-
-window.previewFile = async function(fileId) {
-    // Get file from IndexedDB
-    const transaction = localDB.transaction(['files'], 'readonly');
-    const store = transaction.objectStore('files');
-    const request = store.get(fileId);
-    
-    request.onsuccess = () => {
-        const file = request.result;
-        if (!file) {
-            showToast('File not found', 'error');
-            return;
-        }
-        
-        const ext = file.name.split('.').pop().toLowerCase();
-        
-        // For images - show in preview modal
-        if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
-            openImagePreview(file.data, file.name);
-        }
-        // For HTML files - open in new tab
-        else if (['html', 'htm'].includes(ext)) {
-            const newTab = window.open();
-            newTab.document.write(atob(file.data.split(',')[1]));
-            newTab.document.title = file.name;
-        }
-        // For HAR files - open in JSON viewer
-        else if (ext === 'har') {
-            try {
-                const harContent = atob(file.data.split(',')[1]);
-                const harJson = JSON.parse(harContent);
-                openJsonPreview(harJson, file.name);
-            } catch (e) {
-                // If parsing fails, open as text
-                openTextPreview(atob(file.data.split(',')[1]), file.name);
-            }
-        }
-        // For JSON files
-        else if (ext === 'json') {
-            try {
-                const jsonContent = atob(file.data.split(',')[1]);
-                const jsonData = JSON.parse(jsonContent);
-                openJsonPreview(jsonData, file.name);
-            } catch (e) {
-                openTextPreview(atob(file.data.split(',')[1]), file.name);
-            }
-        }
-        // For text files
-        else if (ext === 'txt') {
-            openTextPreview(atob(file.data.split(',')[1]), file.name);
-        }
-        // For PDF - open in new tab
-        else if (ext === 'pdf') {
-            const newTab = window.open();
-            newTab.document.write(`<iframe src="${file.data}" style="width:100%;height:100%;border:none;"></iframe>`);
-            newTab.document.title = file.name;
-        }
-        // For other files - download
-        else {
-            downloadFileById(fileId);
-        }
-    };
-};
-
-// Image Preview Modal
-function openImagePreview(dataUrl, fileName) {
-    const modal = document.createElement('div');
-    modal.className = 'preview-modal active';
-    modal.innerHTML = `
-        <div class="preview-modal-content image-preview">
-            <div class="preview-modal-header">
-                <h3>${escapeHtml(fileName)}</h3>
-                <button class="preview-close-btn" onclick="this.closest('.preview-modal').remove()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"/>
-                        <line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                </button>
-            </div>
-            <div class="preview-modal-body">
-                <img src="${dataUrl}" alt="${escapeHtml(fileName)}" style="max-width: 100%; max-height: 80vh; object-fit: contain;">
-            </div>
-        </div>
-    `;
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.remove();
-    });
-    document.body.appendChild(modal);
-}
-
-// JSON/HAR Preview Modal
-function openJsonPreview(jsonData, fileName) {
-    const modal = document.createElement('div');
-    modal.className = 'preview-modal active';
-    modal.innerHTML = `
-        <div class="preview-modal-content json-preview">
-            <div class="preview-modal-header">
-                <h3>${escapeHtml(fileName)}</h3>
-                <button class="preview-close-btn" onclick="this.closest('.preview-modal').remove()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"/>
-                        <line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                </button>
-            </div>
-            <div class="preview-modal-body">
-                <pre style="white-space: pre-wrap; word-wrap: break-word; max-height: 70vh; overflow: auto; background: var(--bg-tertiary); padding: 16px; border-radius: 8px; font-family: var(--font-mono); font-size: 12px;">${escapeHtml(JSON.stringify(jsonData, null, 2))}</pre>
-            </div>
-        </div>
-    `;
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.remove();
-    });
-    document.body.appendChild(modal);
-}
-
-// Text Preview Modal
-function openTextPreview(text, fileName) {
-    const modal = document.createElement('div');
-    modal.className = 'preview-modal active';
-    modal.innerHTML = `
-        <div class="preview-modal-content text-preview">
-            <div class="preview-modal-header">
-                <h3>${escapeHtml(fileName)}</h3>
-                <button class="preview-close-btn" onclick="this.closest('.preview-modal').remove()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"/>
-                        <line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                </button>
-            </div>
-            <div class="preview-modal-body">
-                <pre style="white-space: pre-wrap; word-wrap: break-word; max-height: 70vh; overflow: auto; background: var(--bg-tertiary); padding: 16px; border-radius: 8px; font-family: var(--font-mono); font-size: 12px;">${escapeHtml(text)}</pre>
-            </div>
-        </div>
-    `;
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.remove();
-    });
-    document.body.appendChild(modal);
-}
-
-window.deleteAttachment = async function(fileId, storagePath) {
-    if (confirm('Delete this attachment?')) {
-        await deleteFile(fileId, storagePath);
-        await renderAttachmentsModalFiles(currentAttachmentsEntryId);
-        await refreshData();
-        showToast('Attachment deleted', 'success');
-    }
-};
 
 // =====================================================
 // IMPORT/EXPORT
