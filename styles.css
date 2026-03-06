@@ -68,11 +68,14 @@ body {
 .app-container {
     display: flex;
     min-height: 100vh;
+    width: 100%;
+    overflow-x: hidden;
 }
 
 /* Sidebar */
 .sidebar {
     width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
     display: flex;
@@ -80,6 +83,7 @@ body {
     position: fixed;
     height: 100vh;
     z-index: 100;
+    overflow-y: auto;
 }
 
 .logo {
@@ -156,6 +160,8 @@ body {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    margin-top: auto; /* Push to bottom */
+    flex-shrink: 0; /* Don't shrink */
 }
 
 .btn-export, .btn-import {
@@ -193,6 +199,8 @@ body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    width: calc(100% - var(--sidebar-width));
+    overflow-x: auto;
 }
 
 /* Header */
@@ -204,6 +212,10 @@ body {
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     min-height: var(--header-height);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    flex-shrink: 0;
 }
 
 .header h1 {
@@ -1416,7 +1428,37 @@ body {
 }
 
 /* Responsive */
+
+/* Ensure layout works at 100% zoom on all screens */
+@media (min-width: 1201px) {
+    .header {
+        padding: 16px 24px;
+    }
+    
+    .view {
+        padding: 24px;
+    }
+}
+
+@media (max-width: 1400px) {
+    :root {
+        --sidebar-width: 220px;
+    }
+    
+    .header {
+        padding: 16px 20px;
+    }
+    
+    .view {
+        padding: 20px;
+    }
+}
+
 @media (max-width: 1200px) {
+    :root {
+        --sidebar-width: 200px;
+    }
+    
     .stats-grid {
         grid-template-columns: repeat(2, 1fr);
     }
@@ -1424,9 +1466,41 @@ body {
     .dashboard-grid {
         grid-template-columns: 1fr;
     }
+    
+    .header {
+        padding: 12px 16px;
+    }
+    
+    .header h1 {
+        font-size: 1.4rem;
+    }
+    
+    .btn-primary {
+        padding: 10px 16px;
+        font-size: 0.85rem;
+    }
+}
+
+@media (max-width: 992px) {
+    :root {
+        --sidebar-width: 180px;
+    }
+    
+    .logo span {
+        font-size: 1rem;
+    }
+    
+    .nav-item {
+        padding: 10px 14px;
+        font-size: 0.85rem;
+    }
 }
 
 @media (max-width: 768px) {
+    :root {
+        --sidebar-width: 70px;
+    }
+    
     .sidebar {
         width: 70px;
         padding: 0;
@@ -1456,12 +1530,18 @@ body {
     
     .main-content {
         margin-left: 70px;
+        width: calc(100% - 70px);
     }
     
     .header {
         flex-direction: column;
-        gap: 16px;
+        gap: 12px;
         align-items: flex-start;
+        padding: 12px;
+    }
+    
+    .header h1 {
+        font-size: 1.2rem;
     }
     
     .stats-grid {
