@@ -48,55 +48,107 @@ if (isFirebaseConfigured) {
 // DATA MANAGEMENT
 // =====================================================
 
-// Get all entries from Firebase or localStorage
+// Get all entries - merge Firebase and localStorage for team sync
 async function getEntries() {
     console.log('=== GET ENTRIES ===');
     
-    // Always use localStorage as the source of truth
+    // Get localStorage entries
     const localData = localStorage.getItem('qbo_tracker_entries');
-    console.log('Raw localStorage length:', localData ? localData.length : 0);
-    
     let localEntries = [];
     try {
         localEntries = localData ? JSON.parse(localData) : [];
     } catch (e) {
-        console.error('Error parsing localStorage in getEntries:', e);
+        console.error('Error parsing localStorage:', e);
         localEntries = [];
     }
+    console.log('Local entries count:', localEntries.length);
     
-    console.log('Parsed entries count:', localEntries.length);
-    console.log('Entry IDs:', localEntries.map(e => e.id));
+    // If Firebase is available, fetch and merge with local data
+    if (firebaseAvailable) {
+        try {
+            console.log('Fetching from Firebase for team sync...');
+            const snapshot = await db.collection('entries').get();
+            const firebaseEntries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            console.log('Firebase entries count:', firebaseEntries.length);
+            
+            // Merge: combine both sources, keeping the most recently updated version
+            const mergedEntries = mergeEntries(localEntries, firebaseEntries);
+            console.log('Merged entries count:', mergedEntries.length);
+            
+            // Save merged data to localStorage
+            localStorage.setItem('qbo_tracker_entries', JSON.stringify(mergedEntries));
+            
+            return mergedEntries;
+        } catch (error) {
+            console.error('Firebase fetch error, using local data:', error);
+            return localEntries;
+        }
+    }
     
     return localEntries;
 }
 
-// Save entry to Firebase or localStorage
+// Merge entries from two sources, keeping the most recent version of each
+function mergeEntries(localEntries, firebaseEntries) {
+    const entryMap = new Map();
+    
+    // Add all local entries to map
+    for (const entry of localEntries) {
+        entryMap.set(String(entry.id), entry);
+    }
+    
+    // Merge Firebase entries - keep the one with more recent updatedAt
+    for (const fbEntry of firebaseEntries) {
+        const id = String(fbEntry.id);
+        const existing = entryMap.get(id);
+        
+        if (!existing) {
+            // New entry from Firebase (added by another team member)
+            entryMap.set(id, fbEntry);
+        } else {
+            // Entry exists in both - keep the one with more recent updatedAt
+            const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+            const fbTime = fbEntry.updatedAt ? new Date(fbEntry.updatedAt).getTime() : 0;
+            
+            if (fbTime > existingTime) {
+                entryMap.set(id, fbEntry);
+            }
+        }
+    }
+    
+    // Convert back to array and sort by createdAt (newest first)
+    const merged = Array.from(entryMap.values());
+    merged.sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
+    });
+    
+    return merged;
+}
+
+// Save entry to Firebase and localStorage
 async function saveEntry(entryData) {
-    console.log('saveEntry called, firebaseAvailable:', firebaseAvailable, 'entryData:', entryData);
+    console.log('saveEntry called, entryData:', entryData);
     
     // Generate ID if new entry
     if (!entryData.id) {
         entryData.id = generateId();
     }
     
-    // ALWAYS save to localStorage first for reliability
+    // Save to localStorage first (instant, reliable)
     const savedToLocal = saveToLocalStorage(entryData);
     console.log('Saved to localStorage:', savedToLocal.id);
     
-    // Then try Firebase if available (async, don't wait)
+    // Save to Firebase for team sync (with longer timeout)
     if (firebaseAvailable) {
         try {
-            console.log('Also saving to Firebase...');
-            // Try Firebase with timeout
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Firebase save timeout')), 5000)
-            );
-            
-            const firebasePromise = db.collection('entries').doc(entryData.id).set(entryData);
-            await Promise.race([firebasePromise, timeoutPromise]);
-            console.log('Entry also saved to Firebase');
+            console.log('Saving to Firebase for team sync...');
+            await db.collection('entries').doc(String(entryData.id)).set(entryData);
+            console.log('Successfully saved to Firebase - other team members can now see this entry');
         } catch (error) {
-            console.warn('Firebase save failed/timed out, but localStorage save succeeded:', error.message);
+            console.error('Firebase save failed:', error);
+            showToast('Saved locally. Firebase sync failed - other team members may not see this update.', 'error');
         }
     }
     
@@ -160,26 +212,23 @@ function saveToLocalStorage(entryData) {
 
 // Delete entry from Firebase or localStorage
 async function deleteEntryFromDB(entryId) {
-    console.log('Deleting entry:', entryId, 'firebaseAvailable:', firebaseAvailable);
+    console.log('Deleting entry:', entryId);
     
-    // ALWAYS delete from localStorage first
+    // Delete from localStorage
     deleteFromLocalStorage(entryId);
     console.log('Deleted from localStorage');
     
     // Also delete associated files
     await deleteFilesForEntry(entryId);
     
-    // Then try Firebase if available
+    // Delete from Firebase for team sync
     if (firebaseAvailable) {
         try {
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Firebase delete timeout')), 5000)
-            );
-            const firebasePromise = db.collection('entries').doc(entryId).delete();
-            await Promise.race([firebasePromise, timeoutPromise]);
-            console.log('Entry also deleted from Firebase');
+            await db.collection('entries').doc(String(entryId)).delete();
+            console.log('Deleted from Firebase - removed for all team members');
         } catch (error) {
-            console.warn('Firebase delete failed/timed out:', error.message);
+            console.error('Firebase delete failed:', error);
+            showToast('Deleted locally. Firebase sync failed.', 'error');
         }
     }
 }
