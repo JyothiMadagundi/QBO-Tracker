@@ -50,15 +50,23 @@ if (isFirebaseConfigured) {
 
 // Get all entries from Firebase or localStorage
 async function getEntries() {
-    console.log('getEntries called, firebaseAvailable:', firebaseAvailable);
+    console.log('=== GET ENTRIES ===');
     
     // Always use localStorage as the source of truth
     const localData = localStorage.getItem('qbo_tracker_entries');
-    const localEntries = localData ? JSON.parse(localData) : [];
-    console.log('Local entries count:', localEntries.length);
+    console.log('Raw localStorage length:', localData ? localData.length : 0);
     
-    // Return localStorage data immediately - it's always the most up-to-date
-    // Firebase sync happens in the background during save operations
+    let localEntries = [];
+    try {
+        localEntries = localData ? JSON.parse(localData) : [];
+    } catch (e) {
+        console.error('Error parsing localStorage in getEntries:', e);
+        localEntries = [];
+    }
+    
+    console.log('Parsed entries count:', localEntries.length);
+    console.log('Entry IDs:', localEntries.map(e => e.id));
+    
     return localEntries;
 }
 
@@ -97,8 +105,23 @@ async function saveEntry(entryData) {
 
 // Helper function to save to localStorage
 function saveToLocalStorage(entryData) {
-    console.log('Saving to localStorage, entry ID:', entryData.id);
-    const entries = JSON.parse(localStorage.getItem('qbo_tracker_entries') || '[]');
+    console.log('=== SAVE TO LOCALSTORAGE ===');
+    console.log('Entry to save:', JSON.stringify(entryData, null, 2));
+    
+    // Get current entries
+    const rawData = localStorage.getItem('qbo_tracker_entries');
+    console.log('Raw localStorage data length:', rawData ? rawData.length : 0);
+    
+    let entries = [];
+    try {
+        entries = rawData ? JSON.parse(rawData) : [];
+    } catch (e) {
+        console.error('Error parsing localStorage:', e);
+        entries = [];
+    }
+    
+    console.log('Current entries count:', entries.length);
+    console.log('Current entry IDs:', entries.map(e => e.id));
     
     // Use string comparison for IDs to handle type mismatches
     const entryIdStr = String(entryData.id);
@@ -111,16 +134,27 @@ function saveToLocalStorage(entryData) {
         if (!entryData.createdAt && entries[index].createdAt) {
             entryData.createdAt = entries[index].createdAt;
         }
-        entries[index] = entryData;
-        console.log('Updated existing entry at index:', index);
+        console.log('UPDATING entry at index:', index);
+        console.log('Old entry:', JSON.stringify(entries[index], null, 2));
+        entries[index] = { ...entryData }; // Make a copy
+        console.log('New entry:', JSON.stringify(entries[index], null, 2));
     } else {
         // Add new entry
-        entries.unshift(entryData);
-        console.log('Added new entry');
+        console.log('ADDING new entry');
+        entries.unshift({ ...entryData }); // Make a copy
     }
     
-    localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
-    console.log('Saved to localStorage, total entries:', entries.length);
+    // Save back to localStorage
+    const newData = JSON.stringify(entries);
+    console.log('Saving to localStorage, new data length:', newData.length);
+    localStorage.setItem('qbo_tracker_entries', newData);
+    
+    // Verify the save
+    const verifyData = localStorage.getItem('qbo_tracker_entries');
+    const verifyEntries = JSON.parse(verifyData);
+    console.log('VERIFY: Total entries after save:', verifyEntries.length);
+    console.log('VERIFY: Entry IDs after save:', verifyEntries.map(e => e.id));
+    
     return entryData;
 }
 
@@ -452,10 +486,14 @@ function showConfigWarning() {
 }
 
 async function refreshData() {
+    console.log('=== REFRESH DATA ===');
     allEntries = await getEntries();
+    console.log('After getEntries, allEntries count:', allEntries.length);
+    console.log('Entry IDs in allEntries:', allEntries.map(e => e.id));
     updateDashboard();
     await renderEntries();
     renderBanks();
+    console.log('=== REFRESH DATA COMPLETE ===');
 }
 
 // =====================================================
