@@ -581,26 +581,42 @@ function closeEntryModal() {
 // Check if Provider ID already exists (Provider must be unique)
 async function checkDuplicateProvider(provider, excludeEntryId = null) {
     try {
+        // If no provider given, skip check
+        if (!provider || provider.trim() === '') {
+            console.log('No provider to check, skipping duplicate check');
+            return null;
+        }
+        
         const entries = await getEntries();
-        console.log('Checking provider:', provider, 'Exclude ID:', excludeEntryId);
+        const providerLower = provider.toLowerCase().trim();
+        const excludeIdStr = excludeEntryId ? String(excludeEntryId) : null;
         
-        const duplicate = entries.find(entry => {
-            // Skip if no provider to compare
-            if (!entry.provider || !provider) return false;
-            
-            // Check if providers match (case-insensitive)
-            const providerMatch = entry.provider.toLowerCase().trim() === provider.toLowerCase().trim();
-            
-            // Check if this is the same entry being edited (compare as strings)
-            const isSameEntry = excludeEntryId && String(entry.id) === String(excludeEntryId);
-            
-            console.log('Entry:', entry.id, 'Provider:', entry.provider, 'Match:', providerMatch, 'Same entry:', isSameEntry);
-            
-            // Return true if provider matches AND it's not the same entry
-            return providerMatch && !isSameEntry;
-        });
+        console.log('=== DUPLICATE CHECK ===');
+        console.log('Provider to check:', providerLower);
+        console.log('Exclude Entry ID:', excludeIdStr);
+        console.log('Total entries:', entries.length);
         
-        return duplicate;
+        for (const entry of entries) {
+            const entryIdStr = String(entry.id);
+            const entryProviderLower = (entry.provider || '').toLowerCase().trim();
+            
+            console.log(`Entry ID: ${entryIdStr}, Provider: ${entryProviderLower}, Is excluded: ${entryIdStr === excludeIdStr}`);
+            
+            // Skip if this is the entry being edited
+            if (excludeIdStr && entryIdStr === excludeIdStr) {
+                console.log('  -> Skipping (same entry being edited)');
+                continue;
+            }
+            
+            // Check if provider matches
+            if (entryProviderLower === providerLower) {
+                console.log('  -> DUPLICATE FOUND!');
+                return entry;
+            }
+        }
+        
+        console.log('No duplicate found');
+        return null;
     } catch (error) {
         console.error('Error checking duplicate:', error);
         return null; // Allow save if check fails
@@ -876,9 +892,15 @@ async function renderEntries() {
 
 // Global functions
 window.editEntry = async function(id) {
-    const entry = allEntries.find(e => e.id === id);
+    console.log('Editing entry with ID:', id, 'Type:', typeof id);
+    // Compare as strings to handle type mismatches
+    const entry = allEntries.find(e => String(e.id) === String(id));
+    console.log('Found entry:', entry);
     if (entry) {
         await openModal(entry);
+    } else {
+        console.error('Entry not found with ID:', id);
+        showToast('Entry not found', 'error');
     }
 };
 
