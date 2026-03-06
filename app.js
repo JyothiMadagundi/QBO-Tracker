@@ -578,17 +578,14 @@ function closeEntryModal() {
     elements.entryForm.reset();
 }
 
-// Check if Provider + Customer ID combination already exists
-async function checkDuplicateEntry(provider, customerId, excludeEntryId = null) {
+// Check if Provider ID already exists (Provider must be unique)
+async function checkDuplicateProvider(provider, excludeEntryId = null) {
     try {
         const entries = await getEntries();
         return entries.find(entry => 
             entry.provider && 
-            entry.customerId && 
             provider &&
-            customerId &&
-            entry.provider.toLowerCase() === provider.toLowerCase() &&
-            entry.customerId.toLowerCase() === customerId.toLowerCase() && 
+            entry.provider.toLowerCase() === provider.toLowerCase() && 
             entry.id !== excludeEntryId
         );
     } catch (error) {
@@ -625,19 +622,17 @@ async function handleFormSubmit(e) {
     
     console.log('isEditing:', isEditing, 'editingEntryId:', editingEntryId);
     
-    // Check for duplicate Provider + Customer ID combination
-    console.log('Checking for duplicates...');
-    const existingEntry = await checkDuplicateEntry(entryData.provider, entryData.customerId, editingEntryId);
+    // Check for duplicate Provider ID (Provider must be unique)
+    console.log('Checking for duplicate Provider...');
+    const existingEntry = await checkDuplicateProvider(entryData.provider, editingEntryId);
     console.log('Duplicate check result:', existingEntry);
     
     if (existingEntry) {
-        showToast(`Entry already exists: Provider "${entryData.provider}" with Customer ID "${entryData.customerId}" (Bank: ${existingEntry.bankName})`, 'error');
+        showToast(`Provider ID "${entryData.provider}" already exists for bank "${existingEntry.bankName}"!`, 'error');
         elements.provider.focus();
         elements.provider.classList.add('input-error');
-        elements.customerId.classList.add('input-error');
         setTimeout(() => {
             elements.provider.classList.remove('input-error');
-            elements.customerId.classList.remove('input-error');
         }, 3000);
         return;
     }
