@@ -66,8 +66,16 @@ async function getEntries() {
             const snapshot = await db.collection('entries').get();
             const firebaseEntries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             
+            // Find and clean up duplicates in Firebase
+            const { unique: dedupedFirebase, duplicateIds } = findDuplicates(firebaseEntries);
+            
+            // Delete duplicates from Firebase in background (don't wait)
+            if (duplicateIds.length > 0) {
+                cleanupFirebaseDuplicates(duplicateIds);
+            }
+            
             // Merge: combine both sources, keeping the most recently updated version
-            const mergedEntries = mergeEntries(localEntries, firebaseEntries);
+            const mergedEntries = mergeEntries(localEntries, dedupedFirebase);
             
             // Save merged data to localStorage
             localStorage.setItem('qbo_tracker_entries', JSON.stringify(mergedEntries));
@@ -82,17 +90,128 @@ async function getEntries() {
     return deduplicateEntries(localEntries);
 }
 
-// Remove duplicate entries based on ID
+// Find duplicates and return unique entries plus IDs of duplicates to delete
+function findDuplicates(entries) {
+    const seenContent = new Map();
+    const unique = [];
+    const duplicateIds = [];
+    
+    for (const entry of entries) {
+        if (!entry) continue;
+        
+        // Create a content key to detect duplicate content with different IDs
+        const contentKey = [
+            String(entry.provider || '').toLowerCase().trim(),
+            String(entry.bankName || '').toLowerCase().trim(),
+            String(entry.customerId || '').toLowerCase().trim()
+        ].join('|');
+        
+        // Check if this is a placeholder entry that can have duplicates
+        const isPlaceholderContent = contentKey === '||' || 
+            contentKey.includes('not yet created') || 
+            contentKey.includes('n/a|n/a|n/a') ||
+            contentKey.includes('na|na|na');
+        
+        if (!isPlaceholderContent && seenContent.has(contentKey)) {
+            // This is a duplicate - decide which one to keep
+            const existingEntry = seenContent.get(contentKey);
+            const existingTime = existingEntry.updatedAt ? new Date(existingEntry.updatedAt).getTime() : 0;
+            const currentTime = entry.updatedAt ? new Date(entry.updatedAt).getTime() : 0;
+            
+            if (currentTime > existingTime) {
+                // Current entry is newer - mark old one for deletion
+                duplicateIds.push(existingEntry.id);
+                const idx = unique.findIndex(e => e.id === existingEntry.id);
+                if (idx !== -1) {
+                    unique[idx] = entry;
+                }
+                seenContent.set(contentKey, entry);
+            } else {
+                // Existing entry is newer or same age - mark current for deletion
+                duplicateIds.push(entry.id);
+            }
+        } else {
+            // Not a duplicate
+            if (!isPlaceholderContent) {
+                seenContent.set(contentKey, entry);
+            }
+            unique.push(entry);
+        }
+    }
+    
+    return { unique, duplicateIds };
+}
+
+// Clean up duplicate entries from Firebase (runs in background)
+async function cleanupFirebaseDuplicates(duplicateIds) {
+    if (!firebaseAvailable || duplicateIds.length === 0) return;
+    
+    console.log(`Cleaning up ${duplicateIds.length} duplicate entries from Firebase...`);
+    
+    for (const id of duplicateIds) {
+        try {
+            await db.collection('entries').doc(String(id)).delete();
+        } catch (error) {
+            console.error('Failed to delete duplicate:', id, error);
+        }
+    }
+    
+    console.log('Firebase cleanup complete');
+}
+
+// Remove duplicate entries based on ID AND content
 function deduplicateEntries(entries) {
-    const seen = new Map();
+    const seenIds = new Map();
+    const seenContent = new Map();
     const unique = [];
     
     for (const entry of entries) {
-        const id = String(entry.id);
-        if (!seen.has(id)) {
-            seen.set(id, true);
-            unique.push(entry);
+        if (!entry) continue;
+        
+        const id = String(entry.id || '');
+        
+        // Create a content key to detect duplicate content with different IDs
+        // Use provider + bankName + customerId as unique identifier
+        const contentKey = [
+            String(entry.provider || '').toLowerCase().trim(),
+            String(entry.bankName || '').toLowerCase().trim(),
+            String(entry.customerId || '').toLowerCase().trim()
+        ].join('|');
+        
+        // Skip if we've seen this ID
+        if (id && seenIds.has(id)) {
+            continue;
         }
+        
+        // Skip if we've seen this content (duplicate with different ID)
+        // Only skip if contentKey is not empty/placeholder
+        const isPlaceholderContent = contentKey === '||' || 
+            contentKey.includes('not yet created') || 
+            contentKey.includes('n/a|n/a|n/a') ||
+            contentKey.includes('na|na|na');
+        
+        if (!isPlaceholderContent && seenContent.has(contentKey)) {
+            // Keep the one with the more recent updatedAt
+            const existingEntry = seenContent.get(contentKey);
+            const existingTime = existingEntry.updatedAt ? new Date(existingEntry.updatedAt).getTime() : 0;
+            const currentTime = entry.updatedAt ? new Date(entry.updatedAt).getTime() : 0;
+            
+            if (currentTime > existingTime) {
+                // Replace with newer entry
+                const idx = unique.findIndex(e => e.id === existingEntry.id);
+                if (idx !== -1) {
+                    unique[idx] = entry;
+                    seenContent.set(contentKey, entry);
+                    if (id) seenIds.set(id, true);
+                }
+            }
+            continue;
+        }
+        
+        // Mark as seen
+        if (id) seenIds.set(id, true);
+        if (!isPlaceholderContent) seenContent.set(contentKey, entry);
+        unique.push(entry);
     }
     
     return unique;
@@ -102,7 +221,7 @@ function deduplicateEntries(entries) {
 function mergeEntries(localEntries, firebaseEntries) {
     const entryMap = new Map();
     
-    // Add all Firebase entries first (they are the source of truth for team data)
+    // Add all Firebase entries first (already deduplicated before this call)
     for (const fbEntry of firebaseEntries) {
         if (fbEntry && fbEntry.id) {
             entryMap.set(String(fbEntry.id), fbEntry);
@@ -130,15 +249,20 @@ function mergeEntries(localEntries, firebaseEntries) {
         }
     }
     
-    // Convert back to array and sort by createdAt (newest first)
+    // Convert back to array
     const merged = Array.from(entryMap.values());
-    merged.sort((a, b) => {
+    
+    // Final deduplication pass to catch any content duplicates from local storage
+    const finalDeduped = deduplicateEntries(merged);
+    
+    // Sort by createdAt (newest first)
+    finalDeduped.sort((a, b) => {
         const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return timeB - timeA;
     });
     
-    return merged;
+    return finalDeduped;
 }
 
 // Save entry to Firebase and localStorage
