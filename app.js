@@ -52,39 +52,14 @@ if (isFirebaseConfigured) {
 async function getEntries() {
     console.log('getEntries called, firebaseAvailable:', firebaseAvailable);
     
-    // Always try localStorage first for immediate response
+    // Always use localStorage as the source of truth
     const localData = localStorage.getItem('qbo_tracker_entries');
     const localEntries = localData ? JSON.parse(localData) : [];
     console.log('Local entries count:', localEntries.length);
     
-    if (firebaseAvailable) {
-        try {
-            console.log('Fetching entries from Firebase...');
-            // Add timeout to Firebase call
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Firebase timeout')), 5000)
-            );
-            const firebasePromise = db.collection('entries').orderBy('createdAt', 'desc').get();
-            
-            const snapshot = await Promise.race([firebasePromise, timeoutPromise]);
-            const entries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            console.log('Fetched', entries.length, 'entries from Firebase');
-            
-            // Sync Firebase data to localStorage
-            if (entries.length > 0) {
-                localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
-            }
-            
-            return entries;
-        } catch (error) {
-            console.error('Error/timeout getting entries from Firebase:', error);
-            console.log('Using localStorage data instead');
-            return localEntries;
-        }
-    } else {
-        console.log('Using localStorage');
-        return localEntries;
-    }
+    // Return localStorage data immediately - it's always the most up-to-date
+    // Firebase sync happens in the background during save operations
+    return localEntries;
 }
 
 // Save entry to Firebase or localStorage
@@ -122,14 +97,28 @@ async function saveEntry(entryData) {
 
 // Helper function to save to localStorage
 function saveToLocalStorage(entryData) {
-    console.log('Saving to localStorage');
+    console.log('Saving to localStorage, entry ID:', entryData.id);
     const entries = JSON.parse(localStorage.getItem('qbo_tracker_entries') || '[]');
-    const index = entries.findIndex(e => e.id === entryData.id);
+    
+    // Use string comparison for IDs to handle type mismatches
+    const entryIdStr = String(entryData.id);
+    const index = entries.findIndex(e => String(e.id) === entryIdStr);
+    
+    console.log('Looking for entry with ID:', entryIdStr, 'Found at index:', index);
+    
     if (index !== -1) {
+        // Update existing entry - preserve createdAt if not in new data
+        if (!entryData.createdAt && entries[index].createdAt) {
+            entryData.createdAt = entries[index].createdAt;
+        }
         entries[index] = entryData;
+        console.log('Updated existing entry at index:', index);
     } else {
+        // Add new entry
         entries.unshift(entryData);
+        console.log('Added new entry');
     }
+    
     localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
     console.log('Saved to localStorage, total entries:', entries.length);
     return entryData;
