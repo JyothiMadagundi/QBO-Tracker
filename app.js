@@ -27,12 +27,20 @@ const useFirebaseStorage = false;
 // Initialize Firebase (only if configured)
 let db = null;
 let storage = null;
+let firebaseAvailable = false;
 
 if (isFirebaseConfigured) {
-    firebase.initializeApp(firebaseConfig);
-    db = firebase.firestore();
-    if (useFirebaseStorage) {
-        storage = firebase.storage();
+    try {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        firebaseAvailable = true;
+        console.log('Firebase initialized successfully');
+        if (useFirebaseStorage) {
+            storage = firebase.storage();
+        }
+    } catch (error) {
+        console.error('Firebase initialization failed:', error);
+        firebaseAvailable = false;
     }
 }
 
@@ -42,9 +50,9 @@ if (isFirebaseConfigured) {
 
 // Get all entries from Firebase or localStorage
 async function getEntries() {
-    console.log('getEntries called, isFirebaseConfigured:', isFirebaseConfigured);
+    console.log('getEntries called, firebaseAvailable:', firebaseAvailable);
     
-    if (isFirebaseConfigured) {
+    if (firebaseAvailable) {
         try {
             console.log('Fetching entries from Firebase...');
             const snapshot = await db.collection('entries').orderBy('createdAt', 'desc').get();
@@ -53,12 +61,16 @@ async function getEntries() {
             return entries;
         } catch (error) {
             console.error('Error getting entries from Firebase:', error);
-            showToast('Error loading data from cloud: ' + error.message, 'error');
-            return [];
+            console.log('Falling back to localStorage...');
+            // Fallback to localStorage if Firebase fails
+            const data = localStorage.getItem('qbo_tracker_entries');
+            const entries = data ? JSON.parse(data) : [];
+            console.log('Fetched', entries.length, 'entries from localStorage (fallback)');
+            return entries;
         }
     } else {
         // Fallback to localStorage
-        console.log('Using localStorage fallback');
+        console.log('Using localStorage');
         const data = localStorage.getItem('qbo_tracker_entries');
         const entries = data ? JSON.parse(data) : [];
         console.log('Fetched', entries.length, 'entries from localStorage');
@@ -68,9 +80,9 @@ async function getEntries() {
 
 // Save entry to Firebase or localStorage
 async function saveEntry(entryData) {
-    console.log('saveEntry called, isFirebaseConfigured:', isFirebaseConfigured, 'entryData:', entryData);
+    console.log('saveEntry called, firebaseAvailable:', firebaseAvailable, 'entryData:', entryData);
     
-    if (isFirebaseConfigured) {
+    if (firebaseAvailable) {
         try {
             if (entryData.id) {
                 // Update existing
@@ -86,41 +98,62 @@ async function saveEntry(entryData) {
             return entryData;
         } catch (error) {
             console.error('Error saving entry to Firebase:', error);
-            showToast('Error saving to cloud: ' + error.message, 'error');
-            return null;
+            console.log('Falling back to localStorage...');
+            // Fallback to localStorage if Firebase fails
+            return saveToLocalStorage(entryData);
         }
     } else {
-        // Fallback to localStorage
-        console.log('Using localStorage fallback');
-        const entries = JSON.parse(localStorage.getItem('qbo_tracker_entries') || '[]');
-        if (entryData.id) {
-            const index = entries.findIndex(e => e.id === entryData.id);
-            if (index !== -1) entries[index] = entryData;
+        // Use localStorage
+        return saveToLocalStorage(entryData);
+    }
+}
+
+// Helper function to save to localStorage
+function saveToLocalStorage(entryData) {
+    console.log('Saving to localStorage');
+    const entries = JSON.parse(localStorage.getItem('qbo_tracker_entries') || '[]');
+    if (entryData.id) {
+        const index = entries.findIndex(e => e.id === entryData.id);
+        if (index !== -1) {
+            entries[index] = entryData;
         } else {
-            entryData.id = generateId();
             entries.unshift(entryData);
         }
-        localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
-        return entryData;
+    } else {
+        entryData.id = generateId();
+        entries.unshift(entryData);
     }
+    localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
+    console.log('Saved to localStorage, total entries:', entries.length);
+    return entryData;
 }
 
 // Delete entry from Firebase or localStorage
 async function deleteEntryFromDB(entryId) {
-    if (isFirebaseConfigured) {
+    console.log('Deleting entry:', entryId, 'firebaseAvailable:', firebaseAvailable);
+    
+    if (firebaseAvailable) {
         try {
             await db.collection('entries').doc(entryId).delete();
             // Also delete associated files
             await deleteFilesForEntry(entryId);
+            console.log('Entry deleted from Firebase');
         } catch (error) {
-            console.error('Error deleting entry:', error);
-            showToast('Error deleting from cloud', 'error');
+            console.error('Error deleting entry from Firebase:', error);
+            // Fallback to localStorage
+            deleteFromLocalStorage(entryId);
         }
     } else {
-        let entries = JSON.parse(localStorage.getItem('qbo_tracker_entries') || '[]');
-        entries = entries.filter(e => e.id !== entryId);
-        localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
+        deleteFromLocalStorage(entryId);
     }
+}
+
+function deleteFromLocalStorage(entryId) {
+    console.log('Deleting from localStorage:', entryId);
+    let entries = JSON.parse(localStorage.getItem('qbo_tracker_entries') || '[]');
+    entries = entries.filter(e => e.id !== entryId);
+    localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
+    console.log('Deleted from localStorage, remaining entries:', entries.length);
 }
 
 function generateId() {
@@ -584,15 +617,23 @@ function closeEntryModal() {
 
 // Check if Customer ID already exists
 async function checkDuplicateCustomerId(customerId, excludeEntryId = null) {
-    const entries = await getEntries();
-    return entries.find(entry => 
-        entry.customerId.toLowerCase() === customerId.toLowerCase() && 
-        entry.id !== excludeEntryId
-    );
+    try {
+        const entries = await getEntries();
+        return entries.find(entry => 
+            entry.customerId && 
+            customerId &&
+            entry.customerId.toLowerCase() === customerId.toLowerCase() && 
+            entry.id !== excludeEntryId
+        );
+    } catch (error) {
+        console.error('Error checking duplicate:', error);
+        return null; // Allow save if check fails
+    }
 }
 
 async function handleFormSubmit(e) {
     e.preventDefault();
+    console.log('Form submit started...');
     
     const entryData = {
         provider: elements.provider.value.trim(),
@@ -611,11 +652,18 @@ async function handleFormSubmit(e) {
         updatedAt: new Date().toISOString()
     };
     
+    console.log('Entry data:', entryData);
+    
     const isEditing = !!elements.entryId.value;
     const editingEntryId = isEditing ? elements.entryId.value : null;
     
+    console.log('isEditing:', isEditing, 'editingEntryId:', editingEntryId);
+    
     // Check for duplicate Customer ID
+    console.log('Checking for duplicates...');
     const existingEntry = await checkDuplicateCustomerId(entryData.customerId, editingEntryId);
+    console.log('Duplicate check result:', existingEntry);
+    
     if (existingEntry) {
         showToast(`Customer ID "${entryData.customerId}" already exists for bank "${existingEntry.bankName}"!`, 'error');
         elements.customerId.focus();
@@ -630,7 +678,9 @@ async function handleFormSubmit(e) {
         entryData.createdAt = new Date().toISOString();
     }
     
+    console.log('Saving entry...');
     const savedEntry = await saveEntry(entryData);
+    console.log('Save result:', savedEntry);
     
     if (savedEntry) {
         // Save any new files
