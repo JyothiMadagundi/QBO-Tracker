@@ -568,6 +568,15 @@ function closeEntryModal() {
     elements.attachedFilesList.innerHTML = '';
 }
 
+// Check if Customer ID already exists
+async function checkDuplicateCustomerId(customerId, excludeEntryId = null) {
+    const entries = await getEntries();
+    return entries.find(entry => 
+        entry.customerId.toLowerCase() === customerId.toLowerCase() && 
+        entry.id !== excludeEntryId
+    );
+}
+
 async function handleFormSubmit(e) {
     e.preventDefault();
     
@@ -589,6 +598,17 @@ async function handleFormSubmit(e) {
     };
     
     const isEditing = !!elements.entryId.value;
+    const editingEntryId = isEditing ? elements.entryId.value : null;
+    
+    // Check for duplicate Customer ID
+    const existingEntry = await checkDuplicateCustomerId(entryData.customerId, editingEntryId);
+    if (existingEntry) {
+        showToast(`Customer ID "${entryData.customerId}" already exists for bank "${existingEntry.bankName}"!`, 'error');
+        elements.customerId.focus();
+        elements.customerId.classList.add('input-error');
+        setTimeout(() => elements.customerId.classList.remove('input-error'), 3000);
+        return;
+    }
     
     if (isEditing) {
         entryData.id = elements.entryId.value;
