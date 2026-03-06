@@ -578,39 +578,48 @@ function closeEntryModal() {
     elements.entryForm.reset();
 }
 
-// Check if Provider ID already exists (Provider must be unique)
-async function checkDuplicateProvider(provider, excludeEntryId = null) {
+// Placeholder values that are allowed to be duplicated
+const PLACEHOLDER_PROVIDERS = [
+    'not yet created',
+    'tbd',
+    'pending',
+    'n/a',
+    'na',
+    'none',
+    'unknown',
+    'to be added',
+    'to be created',
+    ''
+];
+
+// Check if Provider ID already exists (Provider must be unique, except for placeholders)
+async function checkDuplicateProvider(provider) {
     try {
-        // If no provider given, skip check
-        if (!provider || provider.trim() === '') {
-            console.log('No provider to check, skipping duplicate check');
+        const providerLower = (provider || '').toLowerCase().trim();
+        
+        // Skip check if provider is empty or a placeholder value
+        if (PLACEHOLDER_PROVIDERS.includes(providerLower)) {
+            console.log('Provider is a placeholder value, skipping duplicate check:', providerLower);
             return null;
         }
         
         const entries = await getEntries();
-        const providerLower = provider.toLowerCase().trim();
-        const excludeIdStr = excludeEntryId ? String(excludeEntryId) : null;
         
         console.log('=== DUPLICATE CHECK ===');
         console.log('Provider to check:', providerLower);
-        console.log('Exclude Entry ID:', excludeIdStr);
         console.log('Total entries:', entries.length);
         
         for (const entry of entries) {
-            const entryIdStr = String(entry.id);
             const entryProviderLower = (entry.provider || '').toLowerCase().trim();
             
-            console.log(`Entry ID: ${entryIdStr}, Provider: ${entryProviderLower}, Is excluded: ${entryIdStr === excludeIdStr}`);
-            
-            // Skip if this is the entry being edited
-            if (excludeIdStr && entryIdStr === excludeIdStr) {
-                console.log('  -> Skipping (same entry being edited)');
+            // Skip entries with placeholder providers
+            if (PLACEHOLDER_PROVIDERS.includes(entryProviderLower)) {
                 continue;
             }
             
             // Check if provider matches
             if (entryProviderLower === providerLower) {
-                console.log('  -> DUPLICATE FOUND!');
+                console.log('DUPLICATE FOUND! Entry:', entry.id, 'Bank:', entry.bankName);
                 return entry;
             }
         }
@@ -651,13 +660,16 @@ async function handleFormSubmit(e) {
     
     console.log('isEditing:', isEditing, 'editingEntryId:', editingEntryId);
     
-    // Only check for duplicate Provider ID when ADDING new entries (not when editing)
-    if (!isEditing) {
-        console.log('Checking for duplicate Provider (new entry)...');
-        const existingEntry = await checkDuplicateProvider(entryData.provider, null);
-        console.log('Duplicate check result:', existingEntry);
+    // Check for duplicate Provider ID (placeholders like "Not yet created" are allowed)
+    console.log('Checking for duplicate Provider...');
+    const existingEntry = await checkDuplicateProvider(entryData.provider);
+    
+    // If duplicate found, check if it's the same entry being edited
+    if (existingEntry) {
+        const isSameEntry = isEditing && String(existingEntry.id) === String(editingEntryId);
         
-        if (existingEntry) {
+        if (!isSameEntry) {
+            console.log('Duplicate found and it is a different entry');
             showToast(`Provider ID "${entryData.provider}" already exists for bank "${existingEntry.bankName}"!`, 'error');
             elements.provider.focus();
             elements.provider.classList.add('input-error');
@@ -665,9 +677,9 @@ async function handleFormSubmit(e) {
                 elements.provider.classList.remove('input-error');
             }, 3000);
             return;
+        } else {
+            console.log('Duplicate found but it is the same entry being edited - OK');
         }
-    } else {
-        console.log('Skipping duplicate check (editing existing entry)');
     }
     
     if (isEditing) {
