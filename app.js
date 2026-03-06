@@ -651,19 +651,23 @@ async function handleFormSubmit(e) {
     
     console.log('isEditing:', isEditing, 'editingEntryId:', editingEntryId);
     
-    // Check for duplicate Provider ID (Provider must be unique)
-    console.log('Checking for duplicate Provider...');
-    const existingEntry = await checkDuplicateProvider(entryData.provider, editingEntryId);
-    console.log('Duplicate check result:', existingEntry);
-    
-    if (existingEntry) {
-        showToast(`Provider ID "${entryData.provider}" already exists for bank "${existingEntry.bankName}"!`, 'error');
-        elements.provider.focus();
-        elements.provider.classList.add('input-error');
-        setTimeout(() => {
-            elements.provider.classList.remove('input-error');
-        }, 3000);
-        return;
+    // Only check for duplicate Provider ID when ADDING new entries (not when editing)
+    if (!isEditing) {
+        console.log('Checking for duplicate Provider (new entry)...');
+        const existingEntry = await checkDuplicateProvider(entryData.provider, null);
+        console.log('Duplicate check result:', existingEntry);
+        
+        if (existingEntry) {
+            showToast(`Provider ID "${entryData.provider}" already exists for bank "${existingEntry.bankName}"!`, 'error');
+            elements.provider.focus();
+            elements.provider.classList.add('input-error');
+            setTimeout(() => {
+                elements.provider.classList.remove('input-error');
+            }, 3000);
+            return;
+        }
+    } else {
+        console.log('Skipping duplicate check (editing existing entry)');
     }
     
     if (isEditing) {
