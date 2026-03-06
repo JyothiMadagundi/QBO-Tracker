@@ -48,296 +48,153 @@ if (isFirebaseConfigured) {
 // DATA MANAGEMENT
 // =====================================================
 
-// Get all entries - merge Firebase and localStorage for team sync
+// =============================================================================
+// DATA MANAGEMENT - Firebase is the SINGLE SOURCE OF TRUTH
+// =============================================================================
+
+// Get all entries - Firebase is the single source of truth
 async function getEntries() {
-    // Get localStorage entries
-    const localData = localStorage.getItem('qbo_tracker_entries');
-    let localEntries = [];
-    try {
-        localEntries = localData ? JSON.parse(localData) : [];
-    } catch (e) {
-        console.error('Error parsing localStorage:', e);
-        localEntries = [];
-    }
-    
-    // If Firebase is available, fetch and merge with local data
+    // If Firebase is available, ONLY use Firebase data
     if (firebaseAvailable) {
         try {
             const snapshot = await db.collection('entries').get();
             const firebaseEntries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             
-            // Find and clean up duplicates in Firebase
-            const { unique: dedupedFirebase, duplicateIds } = findDuplicates(firebaseEntries);
+            // Deduplicate by ID (just in case)
+            const entries = deduplicateById(firebaseEntries);
             
-            // Delete duplicates from Firebase in background (don't wait)
-            if (duplicateIds.length > 0) {
-                cleanupFirebaseDuplicates(duplicateIds);
-            }
+            // Sort by createdAt (newest first)
+            entries.sort((a, b) => {
+                const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return timeB - timeA;
+            });
             
-            // Merge: combine both sources, keeping the most recently updated version
-            const mergedEntries = mergeEntries(localEntries, dedupedFirebase);
+            // Cache to localStorage for offline access
+            localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
             
-            // Save merged data to localStorage
-            localStorage.setItem('qbo_tracker_entries', JSON.stringify(mergedEntries));
-            
-            return mergedEntries;
+            return entries;
         } catch (error) {
-            console.error('Firebase fetch error, using local data:', error);
-            return deduplicateEntries(localEntries);
+            console.error('Firebase fetch error, using cached data:', error);
+            // Fall back to localStorage cache only if Firebase fails
+            return getLocalEntries();
         }
     }
     
-    return deduplicateEntries(localEntries);
+    // If Firebase not available, use localStorage (offline mode)
+    return getLocalEntries();
 }
 
-// Find duplicates and return unique entries plus IDs of duplicates to delete
-function findDuplicates(entries) {
-    const seenContent = new Map();
+// Get entries from localStorage (offline fallback)
+function getLocalEntries() {
+    const localData = localStorage.getItem('qbo_tracker_entries');
+    let entries = [];
+    try {
+        entries = localData ? JSON.parse(localData) : [];
+    } catch (e) {
+        console.error('Error parsing localStorage:', e);
+        entries = [];
+    }
+    return deduplicateById(entries);
+}
+
+// Simple deduplication by ID only
+function deduplicateById(entries) {
+    const seen = new Map();
     const unique = [];
-    const duplicateIds = [];
     
     for (const entry of entries) {
-        if (!entry) continue;
-        
-        // Create a content key to detect duplicate content with different IDs
-        const contentKey = [
-            String(entry.provider || '').toLowerCase().trim(),
-            String(entry.bankName || '').toLowerCase().trim(),
-            String(entry.customerId || '').toLowerCase().trim()
-        ].join('|');
-        
-        // Check if this is a placeholder entry that can have duplicates
-        const isPlaceholderContent = contentKey === '||' || 
-            contentKey.includes('not yet created') || 
-            contentKey.includes('n/a|n/a|n/a') ||
-            contentKey.includes('na|na|na');
-        
-        if (!isPlaceholderContent && seenContent.has(contentKey)) {
-            // This is a duplicate - decide which one to keep
-            const existingEntry = seenContent.get(contentKey);
-            const existingTime = existingEntry.updatedAt ? new Date(existingEntry.updatedAt).getTime() : 0;
-            const currentTime = entry.updatedAt ? new Date(entry.updatedAt).getTime() : 0;
-            
-            if (currentTime > existingTime) {
-                // Current entry is newer - mark old one for deletion
-                duplicateIds.push(existingEntry.id);
-                const idx = unique.findIndex(e => e.id === existingEntry.id);
-                if (idx !== -1) {
-                    unique[idx] = entry;
-                }
-                seenContent.set(contentKey, entry);
-            } else {
-                // Existing entry is newer or same age - mark current for deletion
-                duplicateIds.push(entry.id);
-            }
-        } else {
-            // Not a duplicate
-            if (!isPlaceholderContent) {
-                seenContent.set(contentKey, entry);
-            }
+        if (!entry || !entry.id) continue;
+        const id = String(entry.id);
+        if (!seen.has(id)) {
+            seen.set(id, true);
             unique.push(entry);
         }
-    }
-    
-    return { unique, duplicateIds };
-}
-
-// Clean up duplicate entries from Firebase (runs in background)
-async function cleanupFirebaseDuplicates(duplicateIds) {
-    if (!firebaseAvailable || duplicateIds.length === 0) return;
-    
-    console.log(`Cleaning up ${duplicateIds.length} duplicate entries from Firebase...`);
-    
-    for (const id of duplicateIds) {
-        try {
-            await db.collection('entries').doc(String(id)).delete();
-        } catch (error) {
-            console.error('Failed to delete duplicate:', id, error);
-        }
-    }
-    
-    console.log('Firebase cleanup complete');
-}
-
-// Remove duplicate entries based on ID AND content
-function deduplicateEntries(entries) {
-    const seenIds = new Map();
-    const seenContent = new Map();
-    const unique = [];
-    
-    for (const entry of entries) {
-        if (!entry) continue;
-        
-        const id = String(entry.id || '');
-        
-        // Create a content key to detect duplicate content with different IDs
-        // Use provider + bankName + customerId as unique identifier
-        const contentKey = [
-            String(entry.provider || '').toLowerCase().trim(),
-            String(entry.bankName || '').toLowerCase().trim(),
-            String(entry.customerId || '').toLowerCase().trim()
-        ].join('|');
-        
-        // Skip if we've seen this ID
-        if (id && seenIds.has(id)) {
-            continue;
-        }
-        
-        // Skip if we've seen this content (duplicate with different ID)
-        // Only skip if contentKey is not empty/placeholder
-        const isPlaceholderContent = contentKey === '||' || 
-            contentKey.includes('not yet created') || 
-            contentKey.includes('n/a|n/a|n/a') ||
-            contentKey.includes('na|na|na');
-        
-        if (!isPlaceholderContent && seenContent.has(contentKey)) {
-            // Keep the one with the more recent updatedAt
-            const existingEntry = seenContent.get(contentKey);
-            const existingTime = existingEntry.updatedAt ? new Date(existingEntry.updatedAt).getTime() : 0;
-            const currentTime = entry.updatedAt ? new Date(entry.updatedAt).getTime() : 0;
-            
-            if (currentTime > existingTime) {
-                // Replace with newer entry
-                const idx = unique.findIndex(e => e.id === existingEntry.id);
-                if (idx !== -1) {
-                    unique[idx] = entry;
-                    seenContent.set(contentKey, entry);
-                    if (id) seenIds.set(id, true);
-                }
-            }
-            continue;
-        }
-        
-        // Mark as seen
-        if (id) seenIds.set(id, true);
-        if (!isPlaceholderContent) seenContent.set(contentKey, entry);
-        unique.push(entry);
     }
     
     return unique;
 }
 
-// Merge entries from two sources, keeping the most recent version of each
-function mergeEntries(localEntries, firebaseEntries) {
-    const entryMap = new Map();
-    
-    // Add all Firebase entries first (already deduplicated before this call)
-    for (const fbEntry of firebaseEntries) {
-        if (fbEntry && fbEntry.id) {
-            entryMap.set(String(fbEntry.id), fbEntry);
-        }
-    }
-    
-    // Then check local entries - only add if newer or not in Firebase
-    for (const localEntry of localEntries) {
-        if (!localEntry || !localEntry.id) continue;
-        
-        const id = String(localEntry.id);
-        const existing = entryMap.get(id);
-        
-        if (!existing) {
-            // Entry only exists locally (maybe Firebase sync failed)
-            entryMap.set(id, localEntry);
-        } else {
-            // Entry exists in both - keep the one with more recent updatedAt
-            const localTime = localEntry.updatedAt ? new Date(localEntry.updatedAt).getTime() : 0;
-            const existingTime = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
-            
-            if (localTime > existingTime) {
-                entryMap.set(id, localEntry);
-            }
-        }
-    }
-    
-    // Convert back to array
-    const merged = Array.from(entryMap.values());
-    
-    // Final deduplication pass to catch any content duplicates from local storage
-    const finalDeduped = deduplicateEntries(merged);
-    
-    // Sort by createdAt (newest first)
-    finalDeduped.sort((a, b) => {
-        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return timeB - timeA;
-    });
-    
-    return finalDeduped;
-}
-
-// Save entry to Firebase and localStorage
+// Save entry - Firebase FIRST (source of truth), then cache to localStorage
 async function saveEntry(entryData) {
     // Generate ID if new entry
     if (!entryData.id) {
         entryData.id = generateId();
     }
     
-    // Save to localStorage first (instant, reliable)
-    const savedToLocal = saveToLocalStorage(entryData);
+    // Add timestamps
+    if (!entryData.createdAt) {
+        entryData.createdAt = new Date().toISOString();
+    }
+    entryData.updatedAt = new Date().toISOString();
     
-    // Save to Firebase for team sync
+    // Save to Firebase FIRST (source of truth)
     if (firebaseAvailable) {
         try {
             await db.collection('entries').doc(String(entryData.id)).set(entryData);
+            // Only update localStorage after successful Firebase save
+            saveToLocalStorage(entryData);
+            return entryData;
         } catch (error) {
             console.error('Firebase save failed:', error);
-            showToast('Saved locally. Firebase sync failed - other team members may not see this update.', 'error');
+            showToast('Failed to save to cloud. Please try again.', 'error');
+            throw error; // Don't save locally if Firebase fails - prevents desync
         }
+    } else {
+        // Offline mode - save locally only
+        saveToLocalStorage(entryData);
+        showToast('Saved offline. Will sync when online.', 'warning');
+        return entryData;
     }
-    
-    return savedToLocal;
 }
 
-// Helper function to save to localStorage
+// Helper function to update localStorage cache
 function saveToLocalStorage(entryData) {
-    // Get current entries
     const rawData = localStorage.getItem('qbo_tracker_entries');
-    
     let entries = [];
     try {
         entries = rawData ? JSON.parse(rawData) : [];
     } catch (e) {
-        console.error('Error parsing localStorage:', e);
         entries = [];
     }
     
-    // Use string comparison for IDs to handle type mismatches
     const entryIdStr = String(entryData.id);
     const index = entries.findIndex(e => String(e.id) === entryIdStr);
     
     if (index !== -1) {
-        // Update existing entry - preserve createdAt if not in new data
-        if (!entryData.createdAt && entries[index].createdAt) {
-            entryData.createdAt = entries[index].createdAt;
-        }
-        entries[index] = { ...entryData }; // Make a copy
+        entries[index] = { ...entryData };
     } else {
-        // Add new entry
-        entries.unshift({ ...entryData }); // Make a copy
+        entries.unshift({ ...entryData });
     }
     
-    // Save back to localStorage
     localStorage.setItem('qbo_tracker_entries', JSON.stringify(entries));
-    
     return entryData;
 }
 
-// Delete entry from Firebase or localStorage
+// Delete entry - Firebase FIRST (source of truth), then update localStorage
 async function deleteEntryFromDB(entryId) {
-    // Delete from localStorage
-    deleteFromLocalStorage(entryId);
+    const entryIdStr = String(entryId);
     
-    // Also delete associated files
-    await deleteFilesForEntry(entryId);
-    
-    // Delete from Firebase for team sync
+    // Delete from Firebase FIRST (source of truth)
     if (firebaseAvailable) {
         try {
-            await db.collection('entries').doc(String(entryId)).delete();
+            await db.collection('entries').doc(entryIdStr).delete();
+            // Only update localStorage after successful Firebase delete
+            deleteFromLocalStorage(entryIdStr);
+            // Also delete associated files
+            await deleteFilesForEntry(entryIdStr);
+            return true;
         } catch (error) {
             console.error('Firebase delete failed:', error);
-            showToast('Deleted locally. Firebase sync failed.', 'error');
+            showToast('Failed to delete from cloud. Please try again.', 'error');
+            throw error; // Don't delete locally if Firebase fails - prevents desync
         }
+    } else {
+        // Offline mode - delete locally only
+        deleteFromLocalStorage(entryIdStr);
+        await deleteFilesForEntry(entryIdStr);
+        showToast('Deleted offline. Will sync when online.', 'warning');
+        return true;
     }
 }
 
@@ -644,7 +501,7 @@ function showConfigWarning() {
 async function refreshData() {
     const entries = await getEntries();
     // Extra safeguard: deduplicate before assigning to global cache
-    allEntries = deduplicateEntries(entries);
+    allEntries = deduplicateById(entries);
     updateDashboard();
     await renderEntries();
     renderBanks();
@@ -849,18 +706,21 @@ async function handleFormSubmit(e) {
     
     if (isEditing) {
         entryData.id = elements.entryId.value;
-    } else {
-        entryData.createdAt = new Date().toISOString();
     }
     
-    const savedEntry = await saveEntry(entryData);
-    
-    if (savedEntry) {
-        showToast(isEditing ? 'Entry updated successfully' : 'Entry added successfully', 'success');
+    try {
+        const savedEntry = await saveEntry(entryData);
+        
+        if (savedEntry) {
+            showToast(isEditing ? 'Entry updated successfully' : 'Entry added successfully', 'success');
+        }
+        
+        closeEntryModal();
+        await refreshData();
+    } catch (error) {
+        console.error('Save failed:', error);
+        // Error toast is shown by saveEntry
     }
-    
-    closeEntryModal();
-    await refreshData();
 }
 
 function openDeleteModal(id) {
@@ -876,11 +736,16 @@ function closeDeleteModal() {
 async function confirmDelete() {
     if (!deleteTargetId) return;
     
-    await deleteEntryFromDB(deleteTargetId);
-    
-    closeDeleteModal();
-    showToast('Entry and attachments deleted', 'success');
-    await refreshData();
+    try {
+        await deleteEntryFromDB(deleteTargetId);
+        closeDeleteModal();
+        showToast('Entry and attachments deleted', 'success');
+        await refreshData();
+    } catch (error) {
+        console.error('Delete failed:', error);
+        closeDeleteModal();
+        // Error toast is shown by deleteEntryFromDB
+    }
 }
 
 // =====================================================
