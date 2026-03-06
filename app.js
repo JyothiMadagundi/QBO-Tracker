@@ -42,42 +42,56 @@ if (isFirebaseConfigured) {
 
 // Get all entries from Firebase or localStorage
 async function getEntries() {
+    console.log('getEntries called, isFirebaseConfigured:', isFirebaseConfigured);
+    
     if (isFirebaseConfigured) {
         try {
+            console.log('Fetching entries from Firebase...');
             const snapshot = await db.collection('entries').orderBy('createdAt', 'desc').get();
-            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const entries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            console.log('Fetched', entries.length, 'entries from Firebase');
+            return entries;
         } catch (error) {
-            console.error('Error getting entries:', error);
-            showToast('Error loading data from cloud', 'error');
+            console.error('Error getting entries from Firebase:', error);
+            showToast('Error loading data from cloud: ' + error.message, 'error');
             return [];
         }
     } else {
         // Fallback to localStorage
+        console.log('Using localStorage fallback');
         const data = localStorage.getItem('qbo_tracker_entries');
-        return data ? JSON.parse(data) : [];
+        const entries = data ? JSON.parse(data) : [];
+        console.log('Fetched', entries.length, 'entries from localStorage');
+        return entries;
     }
 }
 
 // Save entry to Firebase or localStorage
 async function saveEntry(entryData) {
+    console.log('saveEntry called, isFirebaseConfigured:', isFirebaseConfigured, 'entryData:', entryData);
+    
     if (isFirebaseConfigured) {
         try {
             if (entryData.id) {
                 // Update existing
+                console.log('Updating existing entry:', entryData.id);
                 await db.collection('entries').doc(entryData.id).update(entryData);
             } else {
                 // Add new
+                console.log('Adding new entry to Firebase...');
                 const docRef = await db.collection('entries').add(entryData);
                 entryData.id = docRef.id;
+                console.log('Entry saved successfully with ID:', docRef.id);
             }
             return entryData;
         } catch (error) {
-            console.error('Error saving entry:', error);
-            showToast('Error saving to cloud', 'error');
+            console.error('Error saving entry to Firebase:', error);
+            showToast('Error saving to cloud: ' + error.message, 'error');
             return null;
         }
     } else {
         // Fallback to localStorage
+        console.log('Using localStorage fallback');
         const entries = JSON.parse(localStorage.getItem('qbo_tracker_entries') || '[]');
         if (entryData.id) {
             const index = entries.findIndex(e => e.id === entryData.id);
@@ -1385,6 +1399,11 @@ async function importData(e) {
             }
             
             let importedCount = 0;
+            let failedCount = 0;
+            let skippedCount = 0;
+            
+            // Show progress
+            showToast(`Importing ${jsonData.length} entries...`, 'success');
             
             for (const row of jsonData) {
                 const entryData = {
@@ -1406,14 +1425,37 @@ async function importData(e) {
                 };
                 
                 if (entryData.bankName && entryData.customerId) {
-                    await saveEntry(entryData);
-                    importedCount++;
+                    try {
+                        const savedEntry = await saveEntry(entryData);
+                        if (savedEntry) {
+                            importedCount++;
+                        } else {
+                            failedCount++;
+                            console.error('Failed to save entry:', entryData);
+                        }
+                    } catch (saveError) {
+                        failedCount++;
+                        console.error('Error saving entry:', saveError, entryData);
+                    }
+                } else {
+                    skippedCount++;
+                    console.warn('Skipped row - missing bankName or customerId:', row);
                 }
             }
             
-            showToast(`Imported ${importedCount} entries`, 'success');
+            // Build result message
+            let message = `Imported ${importedCount} entries`;
+            if (failedCount > 0) message += `, ${failedCount} failed`;
+            if (skippedCount > 0) message += `, ${skippedCount} skipped`;
+            
+            showToast(message, failedCount > 0 ? 'error' : 'success');
             await refreshData();
+            
+            // Log summary to console for debugging
+            console.log('Import Summary:', { importedCount, failedCount, skippedCount, total: jsonData.length });
+            
         } catch (error) {
+            console.error('Import error:', error);
             showToast('Error importing Excel: ' + error.message, 'error');
         }
     };
