@@ -582,12 +582,25 @@ function closeEntryModal() {
 async function checkDuplicateProvider(provider, excludeEntryId = null) {
     try {
         const entries = await getEntries();
-        return entries.find(entry => 
-            entry.provider && 
-            provider &&
-            entry.provider.toLowerCase() === provider.toLowerCase() && 
-            entry.id !== excludeEntryId
-        );
+        console.log('Checking provider:', provider, 'Exclude ID:', excludeEntryId);
+        
+        const duplicate = entries.find(entry => {
+            // Skip if no provider to compare
+            if (!entry.provider || !provider) return false;
+            
+            // Check if providers match (case-insensitive)
+            const providerMatch = entry.provider.toLowerCase().trim() === provider.toLowerCase().trim();
+            
+            // Check if this is the same entry being edited (compare as strings)
+            const isSameEntry = excludeEntryId && String(entry.id) === String(excludeEntryId);
+            
+            console.log('Entry:', entry.id, 'Provider:', entry.provider, 'Match:', providerMatch, 'Same entry:', isSameEntry);
+            
+            // Return true if provider matches AND it's not the same entry
+            return providerMatch && !isSameEntry;
+        });
+        
+        return duplicate;
     } catch (error) {
         console.error('Error checking duplicate:', error);
         return null; // Allow save if check fails
