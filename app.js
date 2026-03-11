@@ -750,10 +750,16 @@ function initFilters() {
     elements.filterCallType.addEventListener('change', () => renderEntries());
     elements.filterStatus.addEventListener('change', () => renderEntries());
     
-    elements.applyDateFilter.addEventListener('click', () => renderEntries());
+    elements.applyDateFilter.addEventListener('click', () => {
+        // Switch to "All Entries" view when applying date filter
+        showView('entries');
+        renderEntries();
+    });
     elements.clearDateFilter.addEventListener('click', () => {
         elements.dateFrom.value = '';
         elements.dateTo.value = '';
+        // Switch to "All Entries" view when clearing date filter
+        showView('entries');
         renderEntries();
     });
 }
@@ -787,21 +793,19 @@ function getFilteredEntries() {
     }
     
     if (dateFrom) {
-        const fromDate = new Date(dateFrom);
-        fromDate.setHours(0, 0, 0, 0);
+        const fromDate = new Date(dateFrom + 'T00:00:00');
         entries = entries.filter(e => {
             if (!e.callBookedDate) return false; // Exclude entries without call booked date
-            const entryDate = new Date(e.callBookedDate);
+            const entryDate = new Date(e.callBookedDate + 'T00:00:00');
             return entryDate >= fromDate;
         });
     }
     
     if (dateTo) {
-        const toDate = new Date(dateTo);
-        toDate.setHours(23, 59, 59, 999);
+        const toDate = new Date(dateTo + 'T23:59:59');
         entries = entries.filter(e => {
             if (!e.callBookedDate) return false; // Exclude entries without call booked date
-            const entryDate = new Date(e.callBookedDate);
+            const entryDate = new Date(e.callBookedDate + 'T00:00:00');
             return entryDate <= toDate;
         });
     }
