@@ -752,15 +752,13 @@ function initFilters() {
     
     elements.applyDateFilter.addEventListener('click', () => {
         // Switch to "All Entries" view when applying date filter
-        showView('entries');
-        renderEntries();
+        switchView('entries');
     });
     elements.clearDateFilter.addEventListener('click', () => {
         elements.dateFrom.value = '';
         elements.dateTo.value = '';
         // Switch to "All Entries" view when clearing date filter
-        showView('entries');
-        renderEntries();
+        switchView('entries');
     });
 }
 
