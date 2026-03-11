@@ -790,7 +790,8 @@ function getFilteredEntries() {
         const fromDate = new Date(dateFrom);
         fromDate.setHours(0, 0, 0, 0);
         entries = entries.filter(e => {
-            const entryDate = new Date(e.createdAt);
+            if (!e.callBookedDate) return false; // Exclude entries without call booked date
+            const entryDate = new Date(e.callBookedDate);
             return entryDate >= fromDate;
         });
     }
@@ -799,7 +800,8 @@ function getFilteredEntries() {
         const toDate = new Date(dateTo);
         toDate.setHours(23, 59, 59, 999);
         entries = entries.filter(e => {
-            const entryDate = new Date(e.createdAt);
+            if (!e.callBookedDate) return false; // Exclude entries without call booked date
+            const entryDate = new Date(e.callBookedDate);
             return entryDate <= toDate;
         });
     }
